@@ -1,5 +1,32 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **pi / omo-native extension (`packages/pi-extension/`)** - The Antigravity OAuth provider is now available to the native (senpi) runtime as well as OpenCode. It registers the `google-antigravity` provider with a complete OAuth block (`login` / `refreshToken` / `getApiKey`), a `streamSimple` implementation, and the seven Gemini 3.5-3.8 Flash / 3.1 Pro and Claude Sonnet 4.6 / Opus 4.6 Thinking models. Verified end-to-end against the live backend: `omo -p "Reply with exactly AGY_NATIVE_OK" --model google-antigravity/antigravity-gemini-3.8-flash --no-session` prints `AGY_NATIVE_OK` and exits 0.
+- **Shared platform-neutral layer (`src/shared/`)** - The cross-host seam both adapters read: provider id, model catalog projection, the packed `"<refreshToken>|<projectId>"` credential format, and the account-pool selection/rotation/quota surface. Nothing in it imports a host SDK, so the OpenCode plugin and the pi extension stay in agreement on credentials and models.
+
+### Fixed
+
+- **`optional` leaked into tool schemas** - `cleanJSONSchemaForAntigravity` stripped `const`, `$ref` and `$defs` but not `optional`, so any schema carrying that keyword (senpi/typebox tool definitions, for example) was rejected by the backend with `400 Invalid JSON payload received. Unknown name "optional"`. Added `optional`, `nullable` and `discriminator` to the unsupported-keyword list.
+
+### Tests
+
+- 1,097 passing tests (47 suites). Added the pi-extension suite (the full OAuth flow — authorize URL parameters including PKCE S256, the authorization_code exchange, the refresh_token grant, project discovery, and a complete login through the real local callback listener — plus SSE → event-union translation including the error and abort terminals, system-instruction composition, message conversion for multi-turn text / tool calls / tool results / images, pool reading/rotation/failover, credential loading for missing/malformed/token-less auth files, the provider-registration contract driven through the real stream closure, and the backend model-name mapping), and a union-schema test in `src/plugin/request-helpers-anyof.test.ts`.
+- The extension typechecks through `packages/pi-extension/tsconfig.json`; the root `tsconfig.json` includes only `src/**` and `scripts/**`, so `npm run typecheck` does not cover `packages/`.
+- `vitest.config.ts` now also collects `packages/**/*.test.ts`, and aliases `@earendil-works/pi-ai*` to a local stub, since senpi injects that module at extension load time but it is not resolvable from this repository.
+
+### Known limitations
+
+- The `/login google-antigravity` browser-consent step has not been performed interactively; the flow's
+  code path, the credential shape it writes and the host's read-back are covered by tests that drive
+  the real local callback listener.
+- Claude streaming is verified as completed turns (tool calls and plain replies on `claude-sonnet-4-6`
+  and `claude-opus-4-6-thinking`), not frame-by-frame for long responses.
+- A real mid-session quota failover (429 on the account in use) has not been staged; account skipping
+  on refusal is covered by unit tests.
+
 ## [1.9.0] - 2026-09-02
 
 ### Added

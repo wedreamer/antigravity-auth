@@ -10,6 +10,7 @@ declare function extractConversationSeedFromMessages(messages: any[]): string;
 declare function extractConversationSeedFromContents(contents: any[]): string;
 declare function resolveConversationKey(requestPayload: Record<string, unknown>): string | undefined;
 declare function resolveProjectKey(candidate?: unknown, fallback?: string): string | undefined;
+export declare function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void;
 declare function isGeminiToolUsePart(part: any): boolean;
 declare function isGeminiThinkingPart(part: any): boolean;
 declare function ensureThoughtSignature(part: any, sessionId: string): any;
@@ -85,6 +86,7 @@ export declare const __testExports: {
     hasToolUseInMessages: typeof hasToolUseInMessages;
     ensureThinkingBeforeToolUseInContents: typeof ensureThinkingBeforeToolUseInContents;
     ensureThinkingBeforeToolUseInMessages: typeof ensureThinkingBeforeToolUseInMessages;
+    sanitizeRequestPayloadForAntigravity: typeof sanitizeRequestPayloadForAntigravity;
     generateSyntheticProjectId: typeof generateSyntheticProjectId;
     MIN_SIGNATURE_LENGTH: number;
     transformSseLine: typeof transformSseLine;

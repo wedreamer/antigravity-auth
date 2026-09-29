@@ -1,0 +1,12 @@
+{
+  "name": "pi-extension-antigravity-auth",
+  "private": true,
+  "version": "1.9.0",
+  "description": "Google Antigravity OAuth provider for senpi / omo-native, sharing its core with the OpenCode plugin",
+  "type": "module",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

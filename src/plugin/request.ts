@@ -362,7 +362,7 @@ function isValidRequestPart(part: unknown): boolean {
   );
 }
 
-function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
+export function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
   const anyPayload = payload as any;
 
   if (Array.isArray(anyPayload.contents)) {
@@ -1928,6 +1928,7 @@ export const __testExports = {
   hasToolUseInMessages,
   ensureThinkingBeforeToolUseInContents,
   ensureThinkingBeforeToolUseInMessages,
+  sanitizeRequestPayloadForAntigravity,
   generateSyntheticProjectId,
   MIN_SIGNATURE_LENGTH,
   transformSseLine,

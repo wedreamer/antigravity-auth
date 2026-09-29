@@ -28,8 +28,12 @@ The plugin intercepts requests to `generativelanguage.googleapis.com`, transform
 ```
 src/
 ├── index.ts                 # Plugin exports
-├── plugin.ts                # Main entry, fetch interceptor
+├── plugin.ts                # Main entry, fetch interceptor (OpenCode adapter)
 ├── constants.ts             # Endpoints, headers, config
+├── shared/                  # Platform-neutral seam (no host SDK imports)
+│   ├── index.ts             #   the surface both hosts import
+│   ├── registry.ts          #   provider id, model catalog, credential format
+│   └── pool.ts              #   account pool selection, rotation, quota surface
 ├── antigravity/
 │   └── oauth.ts             # OAuth token exchange
 └── plugin/
@@ -48,7 +52,31 @@ src/
     ├── accounts.ts          # Multi-account management
     ├── server.ts            # OAuth callback server
     └── debug.ts             # Debug logging
+
+packages/
+└── pi-extension/            # senpi / omo-native adapter (second host)
+    ├── index.ts             #   provider registration (oauth + models + streamSimple)
+    ├── oauth.ts             #   login / refreshToken / getApiKey
+    ├── stream.ts            #   SSE → senpi event union, backend model resolution
+    ├── gemini-shape.ts      #   senpi messages/tools → Antigravity request envelope
+    ├── project-id.ts        #   project id from the packed credential
+    └── test-support/        #   stub for the host-injected pi-ai module
 ```
+
+### Two hosts, one core
+
+OpenCode loads `plugin.ts` and intercepts `fetch()`. senpi loads `packages/pi-extension/`, which
+registers a provider and supplies its own `streamSimple`. Both hosts read the same `src/shared/`
+seam, the same `constants.ts`, the same model catalog in `plugin/config/models.ts`, and the same
+`cleanJSONSchemaForAntigravity`. A behaviour fixed for one host is therefore fixed for both — which is
+how the `optional` schema keyword was caught and fixed.
+
+Two Antigravity details are easy to get wrong and are asserted by tests:
+
+| Detail | Rule |
+|---|---|
+| Model name | Gemini Flash requires a tier suffix: `gemini-3.8-flash-low`, never the bare `gemini-3.8-flash` (404) |
+| `platform` in JSON bodies | Only `PLATFORM_UNSPECIFIED` is accepted; device-shaped values are rejected with 400 |
 
 ---
 

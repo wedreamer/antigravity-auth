@@ -242,7 +242,7 @@ function isValidRequestPart(part) {
         Object.prototype.hasOwnProperty.call(record, "codeExecutionResult") ||
         Object.prototype.hasOwnProperty.call(record, "thought"));
 }
-function sanitizeRequestPayloadForAntigravity(payload) {
+export function sanitizeRequestPayloadForAntigravity(payload) {
     const anyPayload = payload;
     if (Array.isArray(anyPayload.contents)) {
         anyPayload.contents = anyPayload.contents
@@ -1512,6 +1512,7 @@ export const __testExports = {
     hasToolUseInMessages,
     ensureThinkingBeforeToolUseInContents,
     ensureThinkingBeforeToolUseInMessages,
+    sanitizeRequestPayloadForAntigravity,
     generateSyntheticProjectId,
     MIN_SIGNATURE_LENGTH,
     transformSseLine,

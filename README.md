@@ -33,6 +33,30 @@ Enable OpenCode to authenticate against **Antigravity** (Google's IDE) via OAuth
 - **Google Search grounding** — enable web search for Gemini models (auto or always-on)
 - **Auto-recovery** — handles session errors and tool failures automatically
 - **Plugin compatible** — works alongside other OpenCode plugins (oh-my-opencode, dcp, etc.)
+- **Works on senpi / omo-native too** — the same provider is available to the native runtime as a pi extension, sharing this repository's core. See [`packages/pi-extension/README.md`](packages/pi-extension/README.md).
+
+---
+
+## Using it from senpi / omo-native
+
+[`packages/pi-extension/`](packages/pi-extension/) adapts this repository's core to the native (senpi)
+runtime. It registers the `google-antigravity` provider with `/login`-integrated OAuth, so an
+Antigravity account works there without a Gemini API key.
+
+Note: the extension reads the same account pool as the plugin
+(`~/.config/opencode/antigravity-accounts.json`) and rotates across enabled accounts, keeping a
+persisted cursor next to that file; it falls back to the single `google-antigravity` credential in the
+agent's `auth.json` when that file is absent or empty.
+
+```bash
+ln -sfn "$(pwd)/packages/pi-extension" ~/.omo/agent/extensions/antigravity-auth
+omo --list-models google-antigravity
+/login google-antigravity
+omo -p "Reply with exactly AGY_NATIVE_OK" --model google-antigravity/antigravity-gemini-3.8-flash --no-session
+```
+
+The last command prints `AGY_NATIVE_OK`. Details, the backend's rules (endpoint choice, tier-suffixed
+model names, User-Agent gating) and the test command live in that package's README.
 
 ---
 

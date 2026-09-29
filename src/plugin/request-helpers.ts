@@ -35,6 +35,7 @@ const UNSUPPORTED_KEYWORDS = [
   ...UNSUPPORTED_CONSTRAINTS,
   "$schema", "$defs", "definitions", "const", "$ref", "additionalProperties",
   "propertyNames", "title", "$id", "$comment",
+  "optional", "nullable", "discriminator",
 ] as const;
 
 /**
@@ -437,9 +438,31 @@ function flattenAnyOfOneOf(schema: any): any {
         selected = appendDescriptionHint(selected, hint);
       }
 
-      // Replace result with selected schema, preserving other fields
+      // Replace result with selected schema, preserving other fields.
+      // A branch must not clobber the parent's own `properties`/`required`: tool schemas routinely
+      // declare the real arguments at the top level and use anyOf only to express a constraint on
+      // them (e.g. the eval tool declares action/language/code/summary/cell_id and adds
+      // anyOf:[{required:[language,code]}] for its run branch). Spreading the branch last dropped
+      // every argument but `action`, so the model could never call the tool successfully.
       const { [unionKey]: _, description: __, ...rest } = result;
-      result = { ...rest, ...selected };
+      const parentProperties = rest.properties;
+      const branchProperties = (selected as { properties?: unknown }).properties;
+      const mergedProperties =
+        parentProperties && branchProperties && typeof parentProperties === "object" && typeof branchProperties === "object"
+          ? { ...branchProperties, ...parentProperties }
+          : parentProperties ?? branchProperties;
+      const mergedRequired = Array.from(
+        new Set([
+          ...(Array.isArray(rest.required) ? (rest.required as string[]) : []),
+          ...(Array.isArray((selected as { required?: unknown }).required) ? ((selected as { required: string[] }).required) : []),
+        ]),
+      );
+      result = {
+        ...rest,
+        ...selected,
+        ...(mergedProperties ? { properties: mergedProperties } : {}),
+        ...(mergedRequired.length > 0 ? { required: mergedRequired } : {}),
+      };
     }
   }
 
