@@ -46,6 +46,10 @@ LLM-API-Key-Proxy/
 opencode/
 opencode-better-antigravity-auth/
 
+# Local worktrees and agent runtime state (per-machine, never project content)
+.worktrees/
+.omo/
+
 # Secrets and credentials
 antigravity-accounts.json
 antigravity-oauth-token
