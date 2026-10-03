@@ -10,11 +10,21 @@ export interface OpenAITool {
   }
 }
 
+export interface OpenAIToolCall {
+  readonly id?: string
+  readonly type?: string
+  readonly function?: {
+    readonly name?: string
+    readonly arguments?: string
+  }
+}
+
 export interface OpenAIMessage {
   role?: string
   content?: unknown
   tool_call_id?: string
   name?: string
+  readonly tool_calls?: readonly OpenAIToolCall[]
 }
 
 export interface ChatRequest {
