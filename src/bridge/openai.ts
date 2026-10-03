@@ -26,6 +26,17 @@ function textFromContent(content: unknown): string {
   return parts.join("\n")
 }
 
+function toolArgs(raw: string | undefined): Record<string, unknown> {
+  if (typeof raw !== "string" || raw.length === 0) return {}
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    return asRecord(parsed) ?? {}
+  } catch (error) {
+    if (error instanceof SyntaxError) return {}
+    throw error
+  }
+}
+
 export function toGeminiBody(request: ChatRequest, model: string): Record<string, unknown> {
   const contents: Array<Record<string, unknown>> = []
   const systemTexts: string[] = []
@@ -45,6 +56,25 @@ export function toGeminiBody(request: ChatRequest, model: string): Record<string
             response: { result: text },
           },
         }],
+      })
+      continue
+    }
+    const calls = message.tool_calls
+    if ((role === "assistant" || role === "model") && calls && calls.length > 0) {
+      contents.push({
+        role: "model",
+        parts: [
+          ...(text ? [{ text }] : []),
+          ...calls.map((call) => {
+            const name = call.function?.name
+            return {
+              functionCall: {
+                name: name ? name : "tool",
+                args: toolArgs(call.function?.arguments),
+              },
+            }
+          }),
+        ],
       })
       continue
     }
