@@ -123,7 +123,9 @@ curl -sS http://127.0.0.1:18765/health
 
 返回 `{"ok":true,"proxy":false}`。带了出网代理时 `proxy` 为 `true`。
 
-插件安装：把 `astrbot_plugin_antigravity/` 拷进 AstrBot 的 `data/plugins/`，或执行 `npm run pack:astrbot` 后把 `dist/astrbot_plugin_antigravity.zip` 上传到插件页。zip 里没有桥，桥必须在能读到号池文件的机器上跑。
+插件是子模块 [astrbot_plugin_antigravity](https://github.com/wedreamer/astrbot_plugin_antigravity)，根目录就是可上架的插件包。第一次发布要在 [AstrBot Cloud](https://cloud.astrbot.app/publish) 提交这个仓库；上架后可以在插件市场远程安装，标识是 `wedreamer/astrbot_plugin_antigravity`。
+
+本地仍可把该目录拷进 AstrBot 的 `data/plugins/`，或执行 `npm run pack:astrbot` 后上传 zip。zip 里没有桥，桥必须在能读到号池文件的机器上跑。
 
 到「模型提供商 → 对话 → 新增」，选 **Antigravity Gemini Pool**。
 

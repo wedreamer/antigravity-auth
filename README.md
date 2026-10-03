@@ -123,7 +123,9 @@ curl -sS http://127.0.0.1:18765/health
 
 `{"ok":true,"proxy":false}` means the bridge is up without an outbound proxy. `proxy` is `true` when the bridge was started with `--proxy`.
 
-Install the plugin by copying `astrbot_plugin_antigravity/` into AstrBot `data/plugins/`, or run `npm run pack:astrbot` and upload `dist/astrbot_plugin_antigravity.zip`. The zip does not contain the bridge. The bridge must run on a machine that can read the account file.
+The plugin is the submodule [astrbot_plugin_antigravity](https://github.com/wedreamer/astrbot_plugin_antigravity). Its repository root is the package submitted to the market. The first publish is a submit on [AstrBot Cloud](https://cloud.astrbot.app/publish). After that, the market can install it remotely as `wedreamer/astrbot_plugin_antigravity`.
+
+Locally, copy that directory into AstrBot `data/plugins/`, or run `npm run pack:astrbot` and upload the zip. The zip does not contain the bridge. The bridge must run on a machine that can read the account file.
 
 In the WebUI, open Model Providers, add **Antigravity Gemini Pool**.
 

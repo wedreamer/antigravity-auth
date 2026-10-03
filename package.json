@@ -45,7 +45,7 @@
     "test:e2e:models": "npx tsx script/test-models.ts",
     "test:e2e:regression": "npx tsx script/test-regression.ts",
     "bridge": "npx tsx src/bridge/cli.ts",
-    "pack:astrbot": "rm -rf dist/astrbot_plugin_antigravity.zip && mkdir -p dist && cd astrbot_plugin_antigravity && zip -r ../dist/astrbot_plugin_antigravity.zip . -x '*__pycache__*'"
+    "pack:astrbot": "rm -rf dist/astrbot_plugin_antigravity.zip && mkdir -p dist && cd astrbot_plugin_antigravity && zip -r ../dist/astrbot_plugin_antigravity.zip . -x '*__pycache__*' -x '.git'"
   },
   "peerDependencies": {
     "typescript": "^5"
