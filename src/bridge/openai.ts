@@ -146,8 +146,9 @@ export function toGeminiBody(request: ChatRequest, model: string): Record<string
             }
             if (call.id) functionCall.id = call.id
             const signature = thoughtSignatureOf(call)
-            if (signature) functionCall.thoughtSignature = signature
-            return { functionCall }
+            const part: Record<string, unknown> = { functionCall }
+            if (signature) part.thoughtSignature = signature
+            return part
           }),
         ],
       })
@@ -236,9 +237,13 @@ export function extractCompletion(payload: unknown, model: string): CompletionRe
     if (!call) continue
     const name = typeof call.name === "string" && call.name ? call.name : "tool"
     const id = typeof call.id === "string" && call.id ? call.id : name
-    const callSignature = typeof call.thoughtSignature === "string" && call.thoughtSignature
+    const siblingSignature = typeof part.thoughtSignature === "string" && part.thoughtSignature
+      ? part.thoughtSignature
+      : undefined
+    const nestedSignature = typeof call.thoughtSignature === "string" && call.thoughtSignature
       ? call.thoughtSignature
-      : thoughtSignature
+      : undefined
+    const callSignature = siblingSignature || nestedSignature || thoughtSignature
     if (callSignature) reasoningSignature = callSignature
     toolCalls.push({
       id,

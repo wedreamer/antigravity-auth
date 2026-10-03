@@ -143,8 +143,18 @@ describe("toGeminiBody", () => {
         { role: "tool", tool_call_id: "a", name: "cbeta_search", content: "ok" },
       ],
     }, model)
-    const contents = body.contents as Array<{ parts: Array<Record<string, Record<string, unknown>>> }>
-    expect(contents[0]?.parts[0]?.functionCall).toMatchObject({ id: "a", name: "cbeta_search", thoughtSignature: "SIG" })
+    const contents = body.contents as Array<{
+      parts: Array<{
+        functionCall?: Record<string, unknown>
+        functionResponse?: Record<string, unknown>
+        thoughtSignature?: string
+      }>
+    }>
+    expect(contents[0]?.parts[0]).toEqual({
+      functionCall: { id: "a", name: "cbeta_search", args: {} },
+      thoughtSignature: "SIG",
+    })
+    expect(contents[0]?.parts[0]?.functionCall).not.toHaveProperty("thoughtSignature")
     expect(contents[0]?.parts[1]?.functionCall).toMatchObject({ id: "b", name: "cbeta_search" })
     expect(contents[1]?.parts[0]?.functionResponse).toMatchObject({ id: "a", name: "cbeta_search" })
   })
@@ -199,7 +209,7 @@ describe("issue 6 response fields", () => {
             providerMetadata: { anthropic: { signature: SIG } },
           },
           { text: "answer" },
-          { functionCall: { id: "fc_1", name: "cbeta_search", args: {}, thoughtSignature: SIG } },
+          { functionCall: { id: "fc_1", name: "cbeta_search", args: {} }, thoughtSignature: SIG },
         ],
       },
     }],
