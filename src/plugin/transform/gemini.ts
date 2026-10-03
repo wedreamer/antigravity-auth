@@ -75,6 +75,12 @@ export function toGeminiSchema(schema: unknown): unknown {
     if (key === "type" && typeof value === "string") {
       // Convert type to uppercase for Gemini API
       result[key] = value.toUpperCase();
+    } else if (key === "type" && Array.isArray(value)) {
+      // JSON Schema nullable unions are lists. Gemini Schema.type is one enum.
+      const picked = value.find((item) => typeof item === "string" && item !== "null");
+      if (typeof picked === "string") {
+        result[key] = picked.toUpperCase();
+      }
     } else if (key === "properties" && typeof value === "object" && value !== null) {
       // Recursively transform nested property schemas
       const props: Record<string, unknown> = {};

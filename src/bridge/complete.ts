@@ -71,12 +71,47 @@ export async function completeChat(
       continue
     }
     if (!upstream.ok) {
-      throw new BridgeError(`upstream status ${upstream.status}`, upstream.status, "api_error")
+      throw new BridgeError(await upstreamFailureMessage(upstream), upstream.status, "api_error")
     }
     return finish(upstream, model, account.id, transform, deps, account)
   }
 
   throw new BridgeError("all gemini accounts are rate limited", lastStatus === 429 ? 429 : 503, "rate_limit_error")
+}
+
+const UPSTREAM_DETAIL_LIMIT = 400
+
+function detailFromBody(status: number, body: string): string {
+  const prefix = `upstream status ${status}`
+  const snippet = body.trim().slice(0, UPSTREAM_DETAIL_LIMIT)
+  if (!snippet) return prefix
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch (error) {
+    if (error instanceof SyntaxError) return `${prefix}: ${snippet}`
+    throw error
+  }
+  if (!parsed || typeof parsed !== "object" || !("error" in parsed)) return `${prefix}: ${snippet}`
+  const errorField = parsed.error
+  if (!errorField || typeof errorField !== "object" || !("message" in errorField)) {
+    return `${prefix}: ${snippet}`
+  }
+  const message = errorField.message
+  if (typeof message !== "string" || message.length === 0) return `${prefix}: ${snippet}`
+  return `${prefix}: ${message.slice(0, UPSTREAM_DETAIL_LIMIT)}`
+}
+
+async function upstreamFailureMessage(response: Response): Promise<string> {
+  const prefix = `upstream status ${response.status}`
+  let body: string
+  try {
+    body = await response.text()
+  } catch (error) {
+    if (error instanceof TypeError) return prefix
+    throw error
+  }
+  return detailFromBody(response.status, body)
 }
 
 async function finish(
