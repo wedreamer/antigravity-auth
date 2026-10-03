@@ -58,3 +58,5 @@ antigravity-oauth-token
 *.p12
 *.cer
 *.crt
+__pycache__/
+*.pyc
