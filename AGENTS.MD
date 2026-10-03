@@ -1,144 +1,93 @@
-# AGENTS.md
+# PROJECT KNOWLEDGE BASE
 
-Guidance for AI agents working with this repository.
+**Generated:** 2026-10-03
+**Commit:** 51908e3
+**Branch:** main
 
-## Overview
+## OVERVIEW
+OpenCode plugin that rewrites Gemini-shaped fetches into Antigravity Cloud Code requests. One TypeScript account pool serves OpenCode, omo, and the AstrBot bridge. Zod 4, Vitest, ESM.
 
-OpenCode plugin for Google Antigravity OAuth. Intercepts `fetch()` calls to `generativelanguage.googleapis.com`, transforms them to Antigravity format, and handles auth, quota, recovery, and multi-account rotation.
+## STRUCTURE
+```
+./
+├── index.ts              # v2 entry: setupV2
+├── src/plugin.ts         # v1 fetch interceptor, 3526 lines
+├── src/constants.ts      # endpoints, client id, headers
+├── src/plugin/           # auth, quota, request, transform
+├── src/bridge/           # OpenAI-compatible local bridge
+├── src/v2/               # OpenCode v2 session hooks
+├── src/hooks/            # startup auto-update checker
+├── src/antigravity/      # OAuth PKCE + token exchange
+└── astrbot_plugin_antigravity/  # submodule; protocol stays in this repo
+```
 
-## Build & Test Commands
+## WHERE TO LOOK
+| Task | Location | Notes |
+|------|----------|-------|
+| v1 intercept | src/plugin.ts | createAntigravityPlugin, fetch rewrite |
+| v2 hooks | src/v2/adapter.ts | setupV2; only caller is index.ts |
+| Request rewrite | src/plugin/request.ts | prepareAntigravityRequest, 1993 lines |
+| Schema / thinking strip | src/plugin/request-helpers.ts | deepFilterThinkingBlocks, 2935 lines |
+| Session recovery | src/plugin/recovery.ts | synthetic tool_result; disk helpers in recovery/ |
+| Quota / rotation | src/plugin/quota.ts, rotation.ts | 5h and weekly windows |
+| Accounts | src/plugin/accounts.ts | 1404 lines; refreshToken\|projectId\|managedProjectId |
+| OAuth | src/antigravity/oauth.ts | authorizeAntigravity, exchangeAntigravity |
+| OpenAI bridge | src/bridge/server.ts | listenBridge, handleRequest |
+| Model transform | src/plugin/transform/ | claude.ts, gemini.ts, model-resolver.ts |
+| Streaming | src/plugin/core/streaming/ | transformer.ts; one as any, do not copy |
+| Config | src/plugin/config/loader.ts | antigravity.json merge |
+| Auto-update | src/hooks/auto-update-checker/ | session.created hook |
+| Architecture prose | docs/ARCHITECTURE.md | not an export surface |
+| API spec | docs/ANTIGRAVITY_API_SPEC.md | gateway reference |
 
+## CODE MAP
+| Symbol | Type | Location | Role |
+|--------|------|----------|------|
+| setupV2 | function | src/v2/adapter.ts | v2 plugin entry |
+| createAntigravityPlugin | function | src/plugin.ts | v1 plugin factory |
+| authorizeAntigravity | function | src/antigravity/oauth.ts | PKCE authorize URL |
+| exchangeAntigravity | function | src/antigravity/oauth.ts | code + state exchange |
+| listenBridge | function | src/bridge/server.ts | local OpenAI server |
+| prepareAntigravityRequest | function | src/plugin/request.ts | outbound rewrite |
+| transformAntigravityResponse | function | src/plugin/request.ts | inbound rewrite |
+| resolveModelWithTier | function | src/plugin/transform/model-resolver.ts | model + thinking tier |
+| loadConfig | function | src/plugin/config/loader.ts | merged antigravity.json |
+| createAutoUpdateCheckerHook | function | src/hooks/auto-update-checker | startup pin rewrite |
+
+## CONVENTIONS
+- Double quotes and named exports are the common style.
+- Semicolons and extensionless relative imports are the norm in src/plugin.ts, src/plugin, src/hooks, src/v2, and src/antigravity. Do not treat "no semicolons + .ts extensions" as the repo rule.
+- index.ts imports with .js specifiers (./src/plugin.js, ./src/v2/adapter.js).
+- zod ^4. Tests are colocated *.test.ts (Vitest).
+- createLogger("module") before TUI app.log.
+
+## ANTI-PATTERNS (THIS PROJECT)
+- Do not reimplement the protocol in astrbot_plugin_antigravity.
+- Do not land omo or AstrBot features on branch upstream-sync.
+- quota_fallback is deprecated and ignored. Gemini always falls back between Antigravity and Gemini CLI quotas.
+- Do not persist a weekly or 5h Retry-After as an RPM cooldown. Cap non-quota waits at 60s.
+- Do not copy the as any in src/plugin/core/streaming/transformer.ts.
+- Do not copy empty catch blocks from src/v2/adapter.ts into new code.
+
+## UNIQUE STYLES
+- Refresh string is refreshToken|projectId|managedProjectId. Keep empty segments.
+- Fingerprint contributes User-Agent only. History cap 5.
+- Outgoing Claude thinking blocks are stripped. Recovery injects a synthetic tool_result.
+
+## COMMANDS
 ```bash
-npm install                          # Install dependencies
-npm run build                        # Compile (tsc -p tsconfig.build.json)
-npm run typecheck                    # Type-check only (tsc --noEmit)
-npm test                             # Run all tests (vitest run)
-npx vitest run src/plugin/auth.test.ts          # Single test file
-npx vitest run -t "test name here"              # Single test by name
-npx vitest --watch src/plugin/auth.test.ts      # Watch mode, single file
-npm run test:coverage                # Coverage report
-npm run test:e2e:models              # E2E: model availability check
-npm run test:e2e:regression          # E2E: regression suite
+npm install
+npm run build
+npm run typecheck
+npm test
+npx vitest run src/plugin/auth.test.ts
+npm run bridge
+npm run pack:astrbot
 ```
 
-No linter or formatter is configured. Style is enforced by convention (see below).
-
-## TypeScript Configuration
-
-- `strict: true` with extra strictness: `noUncheckedIndexedAccess`, `noImplicitOverride`, `noFallthroughCasesInSwitch`
-- `verbatimModuleSyntax: true` — use `import type` for type-only imports
-- `target: ESNext`, `module: Preserve`, `moduleResolution: bundler`
-- `allowImportingTsExtensions: true` — use `.ts` extensions in imports
-- No path aliases — all imports are relative
-
-## Code Style
-
-### Imports
-- Use `import type { ... }` for type-only imports (enforced by `verbatimModuleSyntax`)
-- Named imports only — no default imports in src/
-- Relative paths with `.ts` extensions: `import { foo } from "./bar.ts"`
-- Order: node builtins > external packages > local modules
-
-### Exports
-- Named exports only in src/ — no default exports
-- Barrel files (index.ts) for module surfaces
-
-### Naming
-- `camelCase` for functions, variables, parameters
-- `PascalCase` for types, interfaces, classes, enums
-- `UPPER_SNAKE_CASE` for constants
-- `kebab-case` for file names (e.g., `request-helpers.ts`, `thinking-recovery.ts`)
-- Test files: `*.test.ts` colocated with source
-
-### Types
-- No `I` prefix on interfaces, no `Type` suffix
-- Use `z.infer<typeof Schema>` for Zod-derived types
-- Extract to `types.ts` when shared, inline when local
-- Discriminated unions preferred over boolean flags
-- Never use `as any`, `@ts-ignore`, or `@ts-expect-error`
-
-### Functions
-- `export function` for public APIs
-- Arrow functions for callbacks, factories, and inline closures
-- Async functions with targeted try/catch (not blanket)
-
-### Error Handling
-- Defensive try/catch with graceful degradation (fallback values, not crashes)
-- Custom error classes with metadata when domain-specific
-- Catch `unknown`, log, and convert to domain errors — never empty catch blocks
-- Rate limit / quota errors trigger account rotation, not failure
-
-### Formatting
-- 2-space indentation
-- Double quotes for strings
-- Trailing commas in multiline constructs
-- No semicolons (project convention)
-
-### Logging
-- `createLogger("module-name")` for structured logging
-- `console.log` only for CLI/user-facing output
-
-## Module Structure
-
-```
-src/
-├── plugin.ts                # Main entry, fetch interceptor
-├── constants.ts             # Endpoints, headers, API config, system prompts
-├── antigravity/oauth.ts     # OAuth token exchange
-└── plugin/
-    ├── auth.ts              # Token validation & refresh
-    ├── request.ts           # Request transformation (core logic)
-    ├── request-helpers.ts   # Schema cleaning, thinking filters
-    ├── thinking-recovery.ts # Turn boundary detection
-    ├── recovery.ts          # Session recovery (tool_result_missing)
-    ├── quota.ts             # Quota checking (API usage stats)
-    ├── cache.ts             # Auth & signature caching
-    ├── accounts.ts          # Multi-account management & storage
-    ├── storage.ts           # Persistent storage schemas (Zod)
-    ├── fingerprint.ts       # Device fingerprint generation & headers
-    ├── project.ts           # Managed project context resolution
-    └── debug.ts             # Debug logging utilities
-```
-
-## Key Design Patterns
-
-### 1. Request Interception
-Plugin intercepts `fetch()` for `generativelanguage.googleapis.com`, transforms to Antigravity format using official Antigravity IDE and CLI client signatures.
-
-### 2. Claude Thinking Blocks
-ALL thinking blocks are stripped from outgoing requests for Claude models. Claude generates fresh thinking each turn. This eliminates signature validation errors.
-
-### 3. Session Recovery
-When tool execution is interrupted (ESC/timeout), the plugin injects synthetic `tool_result` blocks to recover the session without starting over.
-
-### 4. Schema Sanitization
-Tool schemas are cleaned via allowlist. Unsupported fields (`const`, `$ref`, `$defs`) are removed or converted to Antigravity-compatible format.
-
-### 5. Multi-Account Load Balancing
-Accounts rotate on rate limits. Tracks official 5-hour and Weekly quota windows with native `antigravity_quota` tool. Fingerprints are per-account and regenerated on capacity exhaustion.
-
-### 6. Fingerprint System
-Per-account device fingerprints stored in `antigravity-accounts.json`. Each fingerprint includes deviceId, sessionToken, userAgent, and a reduced clientMetadata (ideType, platform, pluginType — no osVersion, arch, or sqmId). The only header composed is `User-Agent`, built by `buildFingerprintHeaders()` in `fingerprint.ts` and applied on the antigravity request path in `request.ts`. History tracked (max 5), restorable.
-
-## Dependencies
-
-- `zod ^4` — schema validation (NOT zod v3)
-- `@opencode-ai/plugin` — OpenCode plugin interface
-- `@openauthjs/openauth` — OAuth client
-- `proper-lockfile` — file locking for concurrent access
-- `xdg-basedir` — XDG directory resolution
-
-## Testing
-
-- Framework: **Vitest 3** with native ESM
-- Config: `vitest.config.ts`
-- Tests colocated: `src/plugin/foo.test.ts` next to `src/plugin/foo.ts`
-- Use `describe`/`it`/`expect` — standard Vitest API
-- Mock with `vi.fn()`, `vi.spyOn()`, `vi.mock()`
-
-## Documentation
-
-- [README.md](README.md) — Installation & usage
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — Detailed architecture guide
-- [docs/ANTIGRAVITY_API_SPEC.md](docs/ANTIGRAVITY_API_SPEC.md) — API reference
-- [CHANGELOG.md](CHANGELOG.md) — Version history
+## NOTES
+- .codegraph is present. Use it before a broad grep.
+- Config merge: schema defaults, then antigravity.json, then project .opencode/antigravity.json.
+- Windows paths split: loader uses XDG or ~/.config/opencode; some debug paths use %APPDATA%.
+- index.ts default export has setup() for v2 (setupV2) and server() for v1 (AntigravityCLIOAuthPlugin).
+- Child maps: src/plugin/AGENTS.md, src/plugin/transform/AGENTS.md, src/plugin/config/AGENTS.md, src/plugin/recovery/AGENTS.md, src/bridge/AGENTS.md, src/hooks/auto-update-checker/AGENTS.md.
