@@ -20,10 +20,81 @@ function textFromContent(content: unknown): string {
   for (const part of content) {
     if (!part || typeof part !== "object") continue
     const record = part as Record<string, unknown>
+    if (record.type === "think" || record.type === "image_url" || record.type === "input_audio" || record.type === "audio_url") continue
     if (typeof record.text === "string") parts.push(record.text)
     if (typeof record.content === "string") parts.push(record.content)
   }
   return parts.join("\n")
+}
+
+function dataUrl(value: unknown): { mimeType: string; data: string } | undefined {
+  const url = typeof value === "string"
+    ? value
+    : asRecord(value)?.url
+  if (typeof url !== "string") return undefined
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url)
+  if (!match?.[1] || match[2] === undefined) return undefined
+  return { mimeType: match[1], data: match[2] }
+}
+
+function partsFromContent(content: unknown): Array<Record<string, unknown>> | undefined {
+  if (!Array.isArray(content)) return undefined
+  const parts: Array<Record<string, unknown>> = []
+  let sawText = false
+  let sawImage = false
+  let sawAudio = false
+  for (const part of content) {
+    if (!part || typeof part !== "object") continue
+    const record = part as Record<string, unknown>
+    if (record.type === "think") {
+      const thought: Record<string, unknown> = {
+        thought: true,
+        text: typeof record.think === "string" ? record.think : "",
+      }
+      if (typeof record.encrypted === "string" && record.encrypted) thought.thoughtSignature = record.encrypted
+      parts.push(thought)
+      continue
+    }
+    if (record.type === "image_url") {
+      const inline = dataUrl(record.image_url)
+      if (inline) {
+        parts.push({ inlineData: inline })
+        sawImage = true
+      }
+      continue
+    }
+    if (record.type === "input_audio" || record.type === "audio_url") {
+      const audio = asRecord(record.input_audio) ?? asRecord(record.audio_url) ?? record
+      const inline = dataUrl(audio.data ? `data:${typeof audio.format === "string" ? audioMime(audio.format) : "application/octet-stream"};base64,${audio.data}` : audio.url ?? audio)
+      if (!inline && typeof audio.data === "string" && typeof audio.format === "string") {
+        parts.push({ inlineData: { mimeType: audioMime(audio.format), data: audio.data } })
+        sawAudio = true
+        continue
+      }
+      if (inline) {
+        parts.push({ inlineData: inline })
+        sawAudio = true
+      }
+      continue
+    }
+    if (typeof record.text === "string") {
+      parts.push({ text: record.text })
+      sawText = true
+    }
+  }
+  if (!sawText && sawImage) parts.unshift({ text: "[Image]" })
+  if (!sawText && sawAudio && !sawImage) parts.unshift({ text: "[Audio]" })
+  return parts
+}
+
+function audioMime(format: string): string {
+  if (format.includes("/")) return format
+  return `audio/${format}`
+}
+
+function thoughtSignatureOf(call: { extra_content?: { google?: { thought_signature?: string } } }): string | undefined {
+  const sig = call.extra_content?.google?.thought_signature
+  return typeof sig === "string" && sig.length > 0 ? sig : undefined
 }
 
 function toolArgs(raw: string | undefined): Record<string, unknown> {
@@ -48,39 +119,44 @@ export function toGeminiBody(request: ChatRequest, model: string): Record<string
       continue
     }
     if (role === "tool") {
+      const functionResponse: Record<string, unknown> = {
+        name: message.name ?? "tool",
+        response: { result: text },
+      }
+      if (message.tool_call_id) functionResponse.id = message.tool_call_id
       contents.push({
         role: "user",
-        parts: [{
-          functionResponse: {
-            name: message.name ?? "tool",
-            response: { result: text },
-          },
-        }],
+        parts: [{ functionResponse }],
       })
       continue
     }
     const calls = message.tool_calls
     if ((role === "assistant" || role === "model") && calls && calls.length > 0) {
+      const thoughtParts = partsFromContent(message.content)?.filter((part) => part.thought === true) ?? []
       contents.push({
         role: "model",
         parts: [
+          ...thoughtParts,
           ...(text ? [{ text }] : []),
           ...calls.map((call) => {
             const name = call.function?.name
-            return {
-              functionCall: {
-                name: name ? name : "tool",
-                args: toolArgs(call.function?.arguments),
-              },
+            const functionCall: Record<string, unknown> = {
+              name: name ? name : "tool",
+              args: toolArgs(call.function?.arguments),
             }
+            if (call.id) functionCall.id = call.id
+            const signature = thoughtSignatureOf(call)
+            if (signature) functionCall.thoughtSignature = signature
+            return { functionCall }
           }),
         ],
       })
       continue
     }
+    const structured = partsFromContent(message.content)
     contents.push({
       role: role === "assistant" ? "model" : "user",
-      parts: [{ text }],
+      parts: structured && structured.length > 0 ? structured : [{ text }],
     })
   }
   if (contents.length === 0) {
@@ -130,23 +206,122 @@ export function geminiUrl(model: string, stream: boolean): string {
 
 export function extractCompletion(payload: unknown, model: string): CompletionResult {
   const textParts: string[] = []
+  const reasoningParts: string[] = []
   const toolCalls: CompletionResult["toolCalls"] = []
-  for (const part of geminiParts(payload)) {
-    if (typeof part.text === "string" && part.text && part.thought !== true) {
-      textParts.push(part.text)
-    }
-    const call = part.functionCall
-    if (call && typeof call === "object") {
-      const record = call as Record<string, unknown>
-      const name = typeof record.name === "string" ? record.name : "tool"
-      toolCalls.push({
-        id: `call_${toolCalls.length + 1}`,
-        name,
-        arguments: JSON.stringify(record.args ?? {}),
-      })
+  const images: NonNullable<CompletionResult["images"]> = []
+  let reasoningSignature: string | undefined
+  const candidate = firstCandidate(payload)
+  if (typeof candidate?.reasoning_content === "string" && candidate.reasoning_content) {
+    reasoningParts.push(candidate.reasoning_content)
+  }
+  const preserved = candidate?.preservedImages
+  if (Array.isArray(preserved)) {
+    for (const image of preserved) {
+      const record = asRecord(image)
+      if (typeof record?.mimeType === "string" && typeof record.data === "string" && record.data) {
+        images.push({ mimeType: record.mimeType, data: record.data })
+      }
     }
   }
-  return { model, text: textParts.join(""), accountId: "", toolCalls }
+  for (const part of geminiParts(payload)) {
+    if (part.antigravityImageReplaced === true) continue
+    const thoughtSignature = signatureOf(part)
+    if (thoughtSignature) reasoningSignature = thoughtSignature
+    if (part.thought === true || part.type === "reasoning") {
+      if (typeof part.text === "string" && part.text) reasoningParts.push(part.text)
+      continue
+    }
+    if (typeof part.text === "string" && part.text) textParts.push(part.text)
+    const call = asRecord(part.functionCall)
+    if (!call) continue
+    const name = typeof call.name === "string" && call.name ? call.name : "tool"
+    const id = typeof call.id === "string" && call.id ? call.id : name
+    const callSignature = typeof call.thoughtSignature === "string" && call.thoughtSignature
+      ? call.thoughtSignature
+      : thoughtSignature
+    if (callSignature) reasoningSignature = callSignature
+    toolCalls.push({
+      id,
+      name,
+      arguments: JSON.stringify(call.args ?? {}),
+      ...(callSignature ? { thoughtSignature: callSignature } : {}),
+    })
+  }
+  const upstreamFinishReason = typeof candidate?.finishReason === "string" ? candidate.finishReason : undefined
+  const mapped = mapFinishReason(upstreamFinishReason, toolCalls.length > 0)
+  const usage = usageFromPayload(payload)
+  return {
+    model,
+    text: textParts.join(""),
+    accountId: "",
+    toolCalls,
+    ...(usage ? { usage } : {}),
+    ...(reasoningParts.length > 0 ? { reasoningContent: reasoningParts.join("\n") } : {}),
+    ...(reasoningSignature ? { reasoningSignature } : {}),
+    ...(mapped.finishReason ? { finishReason: mapped.finishReason } : {}),
+    ...(upstreamFinishReason ? { upstreamFinishReason } : {}),
+    ...(mapped.safetyMessage ? { safetyMessage: mapped.safetyMessage } : {}),
+    ...(images.length > 0 ? { images } : {}),
+  }
+}
+
+function mapFinishReason(reason: string | undefined, hasToolCall: boolean): {
+  finishReason?: CompletionResult["finishReason"]
+  safetyMessage?: string
+} {
+  if (hasToolCall) return { finishReason: "tool_calls" }
+  switch (reason) {
+    case "SAFETY":
+      return { finishReason: "content_filter", safetyMessage: "The model output failed Gemini platform safety checks." }
+    case "PROHIBITED_CONTENT":
+    case "SPII":
+    case "BLOCKLIST":
+    case "IMAGE_SAFETY":
+      return { finishReason: "content_filter", safetyMessage: "The model output violates Gemini platform policy." }
+    case "MAX_TOKENS":
+      return { finishReason: "length" }
+    case "STOP":
+      return { finishReason: "stop" }
+    case "RECITATION":
+      return { finishReason: "recitation" }
+    default:
+      return {}
+  }
+}
+
+function usageFromPayload(payload: unknown): CompletionResult["usage"] | undefined {
+  const root = asRecord(payload)
+  const response = asRecord(root?.response) ?? root
+  const meta = asRecord(response?.usageMetadata)
+  if (!meta) return undefined
+  const prompt = count(meta.promptTokenCount)
+  const cached = count(meta.cachedContentTokenCount)
+  const candidates = count(meta.candidatesTokenCount)
+  return {
+    promptTokens: prompt,
+    completionTokens: candidates,
+    totalTokens: prompt + candidates,
+    cachedTokens: cached,
+  }
+}
+
+function count(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0
+}
+
+function signatureOf(part: Record<string, unknown>): string | undefined {
+  if (typeof part.thoughtSignature === "string" && part.thoughtSignature) return part.thoughtSignature
+  const provider = asRecord(part.providerMetadata)
+  const anthropic = asRecord(provider?.anthropic)
+  return typeof anthropic?.signature === "string" && anthropic.signature ? anthropic.signature : undefined
+}
+
+function firstCandidate(payload: unknown): Record<string, unknown> | undefined {
+  const root = asRecord(payload)
+  const response = asRecord(root?.response) ?? root
+  const candidates = response?.candidates
+  if (!Array.isArray(candidates)) return undefined
+  return asRecord(candidates[0])
 }
 
 function geminiParts(payload: unknown): Array<Record<string, unknown>> {
@@ -171,14 +346,18 @@ export function openAICompletion(result: CompletionResult): Record<string, unkno
     role: "assistant",
     content: result.text,
   }
+  if (result.reasoningContent) message.reasoning_content = result.reasoningContent
   if (result.toolCalls.length > 0) {
     message.tool_calls = result.toolCalls.map((call) => ({
       id: call.id,
       type: "function",
       function: { name: call.name, arguments: call.arguments },
+      ...(call.thoughtSignature
+        ? { extra_content: { google: { thought_signature: call.thoughtSignature } } }
+        : {}),
     }))
   }
-  return {
+  const body: Record<string, unknown> = {
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion",
     created: Math.floor(Date.now() / 1000),
@@ -186,22 +365,44 @@ export function openAICompletion(result: CompletionResult): Record<string, unkno
     choices: [{
       index: 0,
       message,
-      finish_reason: result.toolCalls.length > 0 ? "tool_calls" : "stop",
+      finish_reason: result.finishReason ?? (result.toolCalls.length > 0 ? "tool_calls" : "stop"),
     }],
   }
+  if (result.usage) body.usage = openAIUsage(result)
+  if (result.images && result.images.length > 0) body.antigravity_images = result.images
+  if (result.reasoningSignature) body.antigravity_reasoning_signature = result.reasoningSignature
+  if (result.safetyMessage) body.error = { message: result.safetyMessage, type: "content_filter" }
+  return body
 }
 
 export function openAIChunk(result: CompletionResult, done: boolean): Record<string, unknown> {
-  return {
+  const chunk: Record<string, unknown> = {
     id: `chatcmpl-${Date.now()}`,
     object: "chat.completion.chunk",
     created: Math.floor(Date.now() / 1000),
     model: result.model,
     choices: [{
       index: 0,
-      delta: done ? {} : { role: "assistant", content: result.text },
-      finish_reason: done ? "stop" : null,
+      delta: done ? {} : {
+        role: "assistant",
+        ...(result.text ? { content: result.text } : {}),
+        ...(result.reasoningContent ? { reasoning_content: result.reasoningContent } : {}),
+      },
+      finish_reason: done ? (result.finishReason ?? (result.toolCalls.length > 0 ? "tool_calls" : "stop")) : null,
     }],
+  }
+  if (done && result.usage) chunk.usage = openAIUsage(result)
+  return chunk
+}
+
+function openAIUsage(result: CompletionResult): Record<string, unknown> {
+  const usage = result.usage
+  if (!usage) return {}
+  return {
+    prompt_tokens: usage.promptTokens,
+    completion_tokens: usage.completionTokens,
+    total_tokens: usage.totalTokens,
+    prompt_tokens_details: { cached_tokens: usage.cachedTokens },
   }
 }
 

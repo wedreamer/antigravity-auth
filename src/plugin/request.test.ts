@@ -250,11 +250,11 @@ describe("request.ts", () => {
       expect(result.thoughtSignature).toBe("skip_thought_signature_validator");
     });
 
-    it("replaces untrusted thoughtSignature with sentinel", () => {
+    it("keeps a real thoughtSignature instead of the sentinel", () => {
       const existingSignature = "a".repeat(MIN_SIGNATURE_LENGTH + 10);
       const part = { thought: true, text: "thinking...", thoughtSignature: existingSignature };
       const result = ensureThoughtSignature(part, "session-key");
-      expect(result.thoughtSignature).toBe("skip_thought_signature_validator");
+      expect(result.thoughtSignature).toBe(existingSignature);
     });
 
     it("does not modify non-thinking parts", () => {

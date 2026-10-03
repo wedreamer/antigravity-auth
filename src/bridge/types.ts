@@ -17,6 +17,23 @@ export interface OpenAIToolCall {
     readonly name?: string
     readonly arguments?: string
   }
+  readonly extra_content?: {
+    readonly google?: {
+      readonly thought_signature?: string
+    }
+  }
+}
+
+export interface CompletionUsage {
+  promptTokens: number
+  completionTokens: number
+  totalTokens: number
+  cachedTokens: number
+}
+
+export interface CompletionImage {
+  mimeType: string
+  data: string
 }
 
 export interface OpenAIMessage {
@@ -59,5 +76,12 @@ export interface CompletionResult {
   model: string
   text: string
   accountId: string
-  toolCalls: Array<{ id: string; name: string; arguments: string }>
+  toolCalls: Array<{ id: string; name: string; arguments: string; thoughtSignature?: string }>
+  usage?: CompletionUsage
+  reasoningContent?: string
+  reasoningSignature?: string
+  finishReason?: "stop" | "tool_calls" | "content_filter" | "length" | "recitation"
+  upstreamFinishReason?: string
+  safetyMessage?: string
+  images?: CompletionImage[]
 }

@@ -385,11 +385,10 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
             // to prevent the API from rejecting the request with a 400 error.
             if (!foundFirstFunctionCall) {
               foundFirstFunctionCall = true;
-              if (!sig || sig.length < MIN_SIGNATURE_LENGTH) {
+              if (!sig) {
                 sig = SKIP_THOUGHT_SIGNATURE;
               }
-            } else {
-              // Parallel function calls MUST NOT have a signature
+            } else if (!sig) {
               sig = undefined;
             }
 
@@ -487,6 +486,13 @@ function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
   return part.signature === expectedSignature;
 }
 
+function isRealSignature(value: unknown): boolean {
+  return typeof value === "string"
+    && value.length > 0
+    && value !== SENTINEL_SIGNATURE
+    && value !== SKIP_THOUGHT_SIGNATURE;
+}
+
 function ensureThoughtSignature(part: any, sessionId: string): any {
   if (!part || typeof part !== "object") {
     return part;
@@ -502,10 +508,12 @@ function ensureThoughtSignature(part: any, sessionId: string): any {
   }
 
   if (part.thought === true) {
+    if (isRealSignature(part.thoughtSignature)) return part;
     return { ...part, thoughtSignature: SENTINEL_SIGNATURE };
   }
 
   if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking") {
+    if (isRealSignature(part.signature) || isRealSignature(part.thoughtSignature)) return part;
     return { ...part, signature: SENTINEL_SIGNATURE };
   }
 

@@ -162,7 +162,11 @@ async function readCompletion(
   const transformed = await transform(response, false)
   const payload = await transformed.json() as unknown
   const completion = extractCompletion(payload, model)
-  if (!completion.text && completion.toolCalls.length === 0) {
+  if (completion.finishReason === "content_filter") return completion
+  if (!completion.text && completion.toolCalls.length === 0 && !completion.images?.length) {
+    if (completion.upstreamFinishReason === "MAX_TOKENS" || completion.upstreamFinishReason === "RECITATION") {
+      throw new BridgeError(`upstream finishReason ${completion.upstreamFinishReason}`, 502, "api_error")
+    }
     throw new BridgeError("upstream returned an empty completion", 502, "api_error")
   }
   return completion
