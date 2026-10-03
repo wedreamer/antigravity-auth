@@ -1,0 +1,40 @@
+<svg viewBox="0 0 860 280" width="860" height="280" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">main 与 upstream-sync</title>
+  <desc id="desc">upstream-sync 跟踪 JoshRob297，再合并进 main。main 放 OpenCode、omo 和 AstrBot 的产品改动。</desc>
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e5e5" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#666"/>
+    </marker>
+  </defs>
+  <rect width="860" height="280" fill="#fafafa"/>
+  <rect width="860" height="280" fill="url(#grid)"/>
+  <text x="36" y="36" font-family="sans-serif" font-size="14" fill="#333" font-weight="bold">分支</text>
+  <text x="90" y="36" font-family="sans-serif" font-size="12" fill="#666">[ 同步上游 ]</text>
+
+  <text x="36" y="78" font-family="sans-serif" font-size="11" fill="#666">upstream-sync</text>
+  <text x="36" y="168" font-family="sans-serif" font-size="11" fill="#333" font-weight="bold">main</text>
+
+  <line x1="170" y1="74" x2="800" y2="74" stroke="#f39c12" stroke-width="2"/>
+  <line x1="170" y1="164" x2="800" y2="164" stroke="#3498db" stroke-width="2"/>
+
+  <circle cx="190" cy="74" r="7" fill="#f39c12"/>
+  <circle cx="430" cy="74" r="7" fill="#f39c12"/>
+  <circle cx="680" cy="74" r="7" fill="#f39c12"/>
+  <circle cx="190" cy="164" r="7" fill="#3498db"/>
+  <circle cx="370" cy="164" r="7" fill="#3498db"/>
+  <circle cx="550" cy="164" r="7" fill="#3498db"/>
+  <circle cx="760" cy="164" r="8" fill="#fafafa" stroke="#3498db" stroke-width="2"/>
+
+  <path d="M680 86 V148 H752" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="190" y="98" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">分叉点</text>
+  <text x="430" y="98" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">拉取上游</text>
+  <text x="680" y="58" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">JoshRob297</text>
+  <text x="370" y="188" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">omo</text>
+  <text x="550" y="188" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">astrbot</text>
+  <text x="760" y="188" font-family="sans-serif" font-size="10" fill="#333" text-anchor="middle">合并</text>
+  <text x="430" y="248" font-family="sans-serif" font-size="11" fill="#666" text-anchor="middle">上游同步走 upstream-sync。产品改动留在 main。</text>
+</svg>

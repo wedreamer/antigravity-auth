@@ -9,11 +9,11 @@
   "author": "JoshRob297",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wedreamer/opencode-antigravity-auth.git"
+    "url": "git+https://github.com/wedreamer/antigravity-auth.git"
   },
-  "homepage": "https://github.com/wedreamer/opencode-antigravity-auth#readme",
+  "homepage": "https://github.com/wedreamer/antigravity-auth#readme",
   "bugs": {
-    "url": "https://github.com/wedreamer/opencode-antigravity-auth/issues"
+    "url": "https://github.com/wedreamer/antigravity-auth/issues"
   },
   "keywords": [
     "opencode",

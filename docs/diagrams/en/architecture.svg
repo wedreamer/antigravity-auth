@@ -1,0 +1,62 @@
+<svg viewBox="0 0 980 500" width="980" height="500" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Shared Antigravity account pool</title>
+  <desc id="desc">OpenCode and omo intercept fetch into AccountManager. AstrBot posts to the local OpenAI bridge, which uses the same AccountManager before calling Antigravity.</desc>
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e5e5" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#666"/>
+    </marker>
+  </defs>
+  <rect width="980" height="500" fill="#fafafa"/>
+  <rect width="980" height="500" fill="url(#grid)"/>
+  <text x="36" y="36" font-family="monospace" font-size="14" fill="#333" font-weight="bold">SHARED ACCOUNT POOL</text>
+  <text x="250" y="36" font-family="monospace" font-size="12" fill="#666">[ ARCHITECTURE ]</text>
+
+  <rect x="36" y="72" width="176" height="64" fill="#fafafa" stroke="#3498db" stroke-width="2"/>
+  <text x="124" y="98" font-family="monospace" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">OPENCODE</text>
+  <text x="124" y="116" font-family="monospace" font-size="10" fill="#666" text-anchor="middle">fetch intercept</text>
+
+  <rect x="36" y="168" width="176" height="64" fill="#fafafa" stroke="#3498db" stroke-width="2"/>
+  <text x="124" y="194" font-family="monospace" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">OMO</text>
+  <text x="124" y="212" font-family="monospace" font-size="10" fill="#666" text-anchor="middle">same OpenCode path</text>
+
+  <rect x="36" y="292" width="176" height="64" fill="#fafafa" stroke="#9b59b6" stroke-width="2"/>
+  <text x="124" y="318" font-family="monospace" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">ASTRBOT</text>
+  <text x="124" y="336" font-family="monospace" font-size="10" fill="#666" text-anchor="middle">OpenAI chat</text>
+
+  <rect x="292" y="292" width="188" height="64" fill="#fafafa" stroke="#9b59b6" stroke-width="2"/>
+  <text x="386" y="318" font-family="monospace" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">SRC_BRIDGE</text>
+  <text x="386" y="336" font-family="monospace" font-size="10" fill="#666" text-anchor="middle">127.0.0.1:18765</text>
+
+  <rect x="560" y="132" width="220" height="132" fill="#fafafa" stroke="#333" stroke-width="2"/>
+  <text x="670" y="168" font-family="monospace" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">ACCOUNT_MANAGER</text>
+  <text x="670" y="190" font-family="monospace" font-size="11" fill="#666" text-anchor="middle">prepareAntigravityRequest</text>
+  <text x="670" y="212" font-family="monospace" font-size="11" fill="#666" text-anchor="middle">refresh + rotation</text>
+  <text x="670" y="236" font-family="monospace" font-size="10" fill="#666" text-anchor="middle">[ SHARED CORE ]</text>
+
+  <rect x="828" y="112" width="120" height="56" fill="#fafafa" stroke="#f39c12" stroke-width="2"/>
+  <text x="888" y="136" font-family="monospace" font-size="11" fill="#333" text-anchor="middle" font-weight="bold">POOL</text>
+  <text x="888" y="152" font-family="monospace" font-size="9" fill="#666" text-anchor="middle">accounts.json</text>
+
+  <rect x="828" y="208" width="120" height="56" fill="#fafafa" stroke="#27ae60" stroke-width="2"/>
+  <text x="888" y="232" font-family="monospace" font-size="11" fill="#333" text-anchor="middle" font-weight="bold">GOOGLE</text>
+  <text x="888" y="248" font-family="monospace" font-size="9" fill="#666" text-anchor="middle">Antigravity</text>
+
+  <path d="M212 104 H520 V176 H560" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M212 200 H500 V200 H560" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M212 324 H292" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M480 324 H530 V248 H560" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M780 168 H828" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M780 220 H828" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <text x="250" y="94" font-family="monospace" font-size="10" fill="#666">intercept</text>
+  <text x="250" y="190" font-family="monospace" font-size="10" fill="#666">same plugin</text>
+  <text x="220" y="314" font-family="monospace" font-size="10" fill="#666">http</text>
+  <text x="486" y="314" font-family="monospace" font-size="10" fill="#666">rewrite</text>
+  <text x="792" y="156" font-family="monospace" font-size="10" fill="#666">read</text>
+  <text x="792" y="208" font-family="monospace" font-size="10" fill="#666">call</text>
+
+  <text x="490" y="470" font-family="monospace" font-size="11" fill="#666" text-anchor="middle">One pool. Two edges. AstrBot does not reimplement the protocol.</text>
+</svg>

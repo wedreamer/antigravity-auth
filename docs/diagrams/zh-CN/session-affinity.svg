@@ -1,0 +1,51 @@
+<svg viewBox="0 0 720 640" width="720" height="640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">会话粘性分号</title>
+  <desc id="desc">会话在账号仍可用时继续使用该号。新会话或 429 时，分配下一个可用号。</desc>
+  <defs>
+    <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+      <path d="M 20 0 L 0 0 0 20" fill="none" stroke="#e5e5e5" stroke-width="0.5"/>
+    </pattern>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#666"/>
+    </marker>
+  </defs>
+  <rect width="720" height="640" fill="#fafafa"/>
+  <rect width="720" height="640" fill="url(#grid)"/>
+  <text x="36" y="36" font-family="sans-serif" font-size="14" fill="#333" font-weight="bold">会话粘性</text>
+  <text x="130" y="36" font-family="sans-serif" font-size="12" fill="#666">[ 号池 ]</text>
+
+  <rect x="250" y="64" width="220" height="44" rx="22" fill="#fafafa" stroke="#333" stroke-width="2"/>
+  <text x="360" y="91" font-family="sans-serif" font-size="12" fill="#333" text-anchor="middle">请求</text>
+  <path d="M360 108 V140" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <polygon points="360,148 470,196 360,244 250,196" fill="#fafafa" stroke="#f39c12" stroke-width="2"/>
+  <text x="360" y="192" font-family="sans-serif" font-size="11" fill="#333" text-anchor="middle">已绑定?</text>
+  <text x="360" y="208" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">且仍可用</text>
+
+  <path d="M250 196 H150 V292" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="156" y="186" font-family="sans-serif" font-size="10" fill="#27ae60">是</text>
+  <path d="M470 196 H570 V292" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="478" y="186" font-family="sans-serif" font-size="10" fill="#e74c3c">否 / 429</text>
+
+  <rect x="48" y="292" width="188" height="64" fill="#fafafa" stroke="#27ae60" stroke-width="2"/>
+  <text x="142" y="318" font-family="sans-serif" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">沿用</text>
+  <text x="142" y="338" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">同一个号</text>
+
+  <rect x="484" y="292" width="188" height="64" fill="#fafafa" stroke="#f39c12" stroke-width="2"/>
+  <text x="578" y="318" font-family="sans-serif" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">分配</text>
+  <text x="578" y="338" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">下一个可用号</text>
+
+  <path d="M142 356 V396 H300" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <path d="M578 356 V396 H420" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <rect x="250" y="380" width="220" height="56" fill="#fafafa" stroke="#333" stroke-width="2"/>
+  <text x="360" y="404" font-family="sans-serif" font-size="12" fill="#333" text-anchor="middle" font-weight="bold">调用</text>
+  <text x="360" y="422" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">Antigravity</text>
+
+  <path d="M360 436 V468" fill="none" stroke="#666" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <polygon points="360,476 470,524 360,572 250,524" fill="#fafafa" stroke="#3498db" stroke-width="2"/>
+  <text x="360" y="520" font-family="sans-serif" font-size="11" fill="#333" text-anchor="middle">结果</text>
+  <text x="360" y="538" font-family="sans-serif" font-size="10" fill="#666" text-anchor="middle">200 则保持绑定</text>
+
+  <text x="360" y="616" font-family="sans-serif" font-size="11" fill="#666" text-anchor="middle">新会话分散到多个号。同一会话保持到 429。</text>
+</svg>
