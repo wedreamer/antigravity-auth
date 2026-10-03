@@ -1393,6 +1393,7 @@ function transformGeminiCandidate(candidate: any): any {
   }
 
   const thinkingTexts: string[] = [];
+  const preservedImages: Array<{ mimeType: string; data: string }> = [];
   const transformedParts = content.parts.map((part: any) => {
     if (!part || typeof part !== "object") {
       return part;
@@ -1460,14 +1461,20 @@ function transformGeminiCandidate(candidate: any): any {
       };
     }
 
-    // Handle image data (inlineData) - save to disk and return file path
+    // Handle image data (inlineData) - save to disk and return file path.
+    // Keep the original bytes for the bridge, which reads this candidate after replacement.
     if (part.inlineData) {
+      const mimeType = part.inlineData.mimeType;
+      const data = part.inlineData.data;
+      if (typeof mimeType === "string" && mimeType.startsWith("image/") && typeof data === "string" && data) {
+        preservedImages.push({ mimeType, data });
+      }
       const result = processImageData({
-        mimeType: part.inlineData.mimeType,
-        data: part.inlineData.data,
+        mimeType,
+        data,
       });
       if (result) {
-        return { text: result };
+        return { text: result, antigravityImageReplaced: true };
       }
     }
 
@@ -1478,6 +1485,7 @@ function transformGeminiCandidate(candidate: any): any {
     ...candidate,
     content: { ...content, parts: transformedParts },
     ...(thinkingTexts.length > 0 ? { reasoning_content: thinkingTexts.join("\n\n") } : {}),
+    ...(preservedImages.length > 0 ? { preservedImages } : {}),
   };
 }
 
