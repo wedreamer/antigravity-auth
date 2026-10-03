@@ -45,7 +45,7 @@ describe("updateOpencodeConfig", () => {
     // Verify written config has correct structure
     const writtenConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
     expect(writtenConfig.$schema).toBe("https://opencode.ai/config.json");
-    expect(writtenConfig.plugin).toContain("opencode-antigravity-auth@latest");
+    expect(writtenConfig.plugin).toContain("antigravity-auth@latest");
     expect(writtenConfig.provider?.google?.models).toBeDefined();
     expect(writtenConfig.provider?.google?.whitelist).toBeDefined();
     expect(writtenConfig.provider?.google?.whitelist).toContain("antigravity-gemini-3.8-flash");
@@ -147,7 +147,7 @@ describe("updateOpencodeConfig", () => {
     expect(result.success).toBe(true);
 
     const writtenConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    expect(writtenConfig.plugin).toContain("opencode-antigravity-auth@latest");
+    expect(writtenConfig.plugin).toContain("antigravity-auth@latest");
     expect(writtenConfig.plugin).toContain("other-plugin");
   });
 
@@ -246,7 +246,7 @@ describe("updateOpencodeConfig", () => {
 
     const writtenConfig = JSON.parse(fs.readFileSync(jsoncPath, "utf-8"));
     expect(writtenConfig.plugin).toContain("other-plugin");
-    expect(writtenConfig.plugin).toContain("opencode-antigravity-auth@latest");
+    expect(writtenConfig.plugin).toContain("antigravity-auth@latest");
     expect(writtenConfig.provider.google.region).toBe("us-central1");
     expect(writtenConfig.provider.google.models["antigravity-gemini-3.7-flash"]).toBeDefined();
   });

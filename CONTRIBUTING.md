@@ -1,4 +1,4 @@
-# Contributing to opencode-antigravity-auth
+# Contributing to antigravity-auth
 
 Thank you for your interest in contributing to `opencode-antigravity-auth`! We welcome bug reports, improvements, documentation updates, and pull requests.
 

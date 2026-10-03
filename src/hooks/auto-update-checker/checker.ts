@@ -12,6 +12,17 @@ import {
 } from "./constants";
 import { logAutoUpdate } from "./logging";
 
+const LEGACY_PACKAGE_NAME = "opencode-antigravity-auth";
+const PACKAGE_NAMES = [LEGACY_PACKAGE_NAME, PACKAGE_NAME];
+
+function packageNameInEntry(entry: string): string | null {
+  for (const name of PACKAGE_NAMES) {
+    if (entry === name || entry.startsWith(`${name}@`)) return name;
+  }
+  if (!entry.startsWith("file://")) return null;
+  return PACKAGE_NAMES.find((name) => entry.includes(name)) ?? null;
+}
+
 export function isLocalDevMode(directory: string): boolean {
   return getLocalDevPath(directory) !== null;
 }
@@ -114,17 +125,17 @@ export function findPluginEntry(directory: string): PluginEntryInfo | null {
       const plugins = config.plugin ?? [];
 
       for (const entry of plugins) {
-        if (entry === PACKAGE_NAME) {
+        const packageName = packageNameInEntry(entry);
+        if (!packageName) continue;
+        if (entry === packageName) {
           return { entry, isPinned: false, pinnedVersion: null, configPath };
         }
-        if (entry.startsWith(`${PACKAGE_NAME}@`)) {
-          const pinnedVersion = entry.slice(PACKAGE_NAME.length + 1);
+        if (entry.startsWith(`${packageName}@`)) {
+          const pinnedVersion = entry.slice(packageName.length + 1);
           const isPinned = pinnedVersion !== "latest";
           return { entry, isPinned, pinnedVersion: isPinned ? pinnedVersion : null, configPath };
         }
-        if (entry.startsWith("file://") && entry.includes(PACKAGE_NAME)) {
-          return { entry, isPinned: false, pinnedVersion: null, configPath };
-        }
+        return { entry, isPinned: false, pinnedVersion: null, configPath };
       }
     } catch {
       continue;

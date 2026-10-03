@@ -1,5 +1,5 @@
 {
-  "name": "opencode-antigravity-auth",
+  "name": "antigravity-auth",
   "version": "2.0.0",
   "description": "Google Antigravity IDE OAuth auth plugin for OpenCode v2 - access Gemini 3.8 Flash, 3.7 Flash, 3.6 Flash, 3.1 Pro and Claude 4.6 using Google credentials",
   "main": "./dist/index.js",
@@ -9,11 +9,11 @@
   "author": "JoshRob297",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JoshRob297/opencode-antigravity-auth.git"
+    "url": "git+https://github.com/wedreamer/opencode-antigravity-auth.git"
   },
-  "homepage": "https://github.com/JoshRob297/opencode-antigravity-auth#readme",
+  "homepage": "https://github.com/wedreamer/opencode-antigravity-auth#readme",
   "bugs": {
-    "url": "https://github.com/JoshRob297/opencode-antigravity-auth/issues"
+    "url": "https://github.com/wedreamer/opencode-antigravity-auth/issues"
   },
   "keywords": [
     "opencode",
@@ -43,7 +43,9 @@
     "test:coverage": "vitest run --coverage",
     "prepublishOnly": "npm run build",
     "test:e2e:models": "npx tsx script/test-models.ts",
-    "test:e2e:regression": "npx tsx script/test-regression.ts"
+    "test:e2e:regression": "npx tsx script/test-regression.ts",
+    "bridge": "npx tsx src/bridge/cli.ts",
+    "pack:astrbot": "rm -rf dist/astrbot_plugin_antigravity.zip && mkdir -p dist && cd astrbot_plugin_antigravity && zip -r ../dist/astrbot_plugin_antigravity.zip . -x '*__pycache__*'"
   },
   "peerDependencies": {
     "typescript": "^5"
@@ -61,6 +63,7 @@
     "@openauthjs/openauth": "^0.4.3",
     "@opencode-ai/plugin": "1.18.31",
     "proper-lockfile": "^4.1.2",
+    "undici": "^7.30.0",
     "xdg-basedir": "^5.1.0",
     "zod": "4.6.5"
   }

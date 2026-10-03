@@ -1,10 +1,64 @@
-# Antigravity OAuth Plugin for OpenCode (Revived & Extended)
+# antigravity-auth
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/JoshRob297/opencode-antigravity-auth/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshRob297/opencode-antigravity-auth/actions/workflows/ci.yml)
+OpenCode / omo 与 AstrBot 共用同一套 Antigravity 号池。包名是 `antigravity-auth`。GitHub 仓库目前仍是 [wedreamer/opencode-antigravity-auth](https://github.com/wedreamer/opencode-antigravity-auth)，本机没有 `gh` 登录，远程仓库名还没改成 `antigravity-auth`。改名命令是 `gh repo rename antigravity-auth`。
 
-> [!NOTE]
-> **Community Revival & Extended Edition**: This repository is an active, open-source continuation of the archived project by [NoeFabris](https://github.com/NoeFabris/opencode-antigravity-auth) (and earlier work by [@jenslys](https://github.com/jenslys) and [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)). It fixes critical upstream bugs and unlocks the newest Google Antigravity models.
+上游是 [JoshRob297/opencode-antigravity-auth](https://github.com/JoshRob297/opencode-antigravity-auth)，更早的归档仓库是 [NoeFabris/opencode-antigravity-auth](https://github.com/NoeFabris/opencode-antigravity-auth)。
+
+## 分支
+
+| 分支 | 作用 |
+| --- | --- |
+| `main` | 产品分支。OpenCode / omo 插件和 AstrBot 适配都在这里。 |
+| `upstream-sync` | 从当时的 `main` 拉出，跟踪 `upstream/main`（JoshRob297）。只用来同步上游，不在这上面做 omo 或 AstrBot 功能。 |
+
+```bash
+git checkout upstream-sync
+git pull
+git checkout main
+git merge upstream-sync
+```
+
+`upstream` 远程是 `https://github.com/JoshRob297/opencode-antigravity-auth.git`。
+
+## 架构
+
+号池、刷新、轮换、请求改写只有一份，在本仓库的 TypeScript 里。两条产品线都调用它，不把协议重写成 Python。
+
+```text
+OpenCode / omo
+  fetch(generativelanguage.googleapis.com)
+        |
+        v
+  prepareAntigravityRequest + AccountManager
+        |
+        v
+  Antigravity (cloudcode)
+
+AstrBot
+  POST {api_base}/chat/completions
+        |
+        v
+  src/bridge   127.0.0.1:18765  OpenAI 兼容
+        |
+        v
+  同一套 prepareAntigravityRequest + AccountManager
+```
+
+号池文件是 `~/.config/opencode/antigravity-accounts.json`。多个号都会用。新会话按可用号轮流分配，同一个会话粘在分到的号上，直到该号 429 才解绑换号。响应头 `x-antigravity-account` 是序号，不是邮箱。
+
+AstrBot 不直连 Google。`api_base` 是 AstrBot 访问桥的地址，默认 `http://127.0.0.1:18765/v1`。`proxy` 只给桥访问 Google 用，例如 `http://127.0.0.1:7890`，不支持 `socks5://`，也不会用来访问桥本身。AstrBot 在 Docker、桥在宿主机时，桥用 `--host 0.0.0.0` 启动，容器里的 `api_base` 填 `http://host.docker.internal:18765/v1`。令牌默认 `local`，要和 `--token` 一致。
+
+AstrBot 插件在 `astrbot_plugin_antigravity/`。安装、Docker 和代理的具体步骤见该目录的 README。打包：`npm run pack:astrbot`。
+
+OpenCode 侧安装这个 fork，不要装 JoshRob297 的同名仓库，除非你只想跟上游：
+
+```json
+{
+  "plugins": ["github:wedreamer/opencode-antigravity-auth"]
+}
+```
+
+GitHub 仓库改名完成后，把上面的仓库名换成 `antigravity-auth`。
 
 ---
 

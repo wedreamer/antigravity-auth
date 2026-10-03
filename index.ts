@@ -10,7 +10,7 @@ import { setupV2, type V2Context } from "./src/v2/adapter.js";
  * - In v2 (2.0+): Invoked via export default .setup(ctx)
  */
 export default {
-  id: "opencode-antigravity-auth",
+  id: "antigravity-auth",
   async setup(ctx: V2Context) {
     return await setupV2(ctx);
   },
