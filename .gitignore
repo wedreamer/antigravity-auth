@@ -40,6 +40,9 @@ antigravity-debug-*.log
 # Local git worktrees
 .worktrees/
 
+# Local agent session artifacts
+.omo/
+
 # Test artifacts
 test-file.ts
 
