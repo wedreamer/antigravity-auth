@@ -690,6 +690,42 @@ describe("transform/gemini", () => {
       expect(toGeminiSchema({ type: "array" })).toEqual({ type: "ARRAY", items: { type: "STRING" } });
     });
 
+    it("collapses nested nullable type arrays to a single uppercase type", () => {
+      const result = toGeminiSchema({
+        type: "object",
+        properties: {
+          q: { type: ["string", "null"], format: "uint32", default: null },
+          n: { type: ["integer", "null"] },
+          ctx: { type: ["null", "string"] },
+        },
+      }) as {
+        properties: {
+          q: { type: unknown; format: unknown; default: unknown };
+          n: { type: unknown };
+          ctx: { type: unknown };
+        };
+      };
+      expect(result.properties.q.type).toBe("STRING");
+      expect(result.properties.n.type).toBe("INTEGER");
+      expect(result.properties.ctx.type).toBe("STRING");
+      expect(Array.isArray(result.properties.q.type)).toBe(false);
+      expect(result.properties.q.format).toBe("uint32");
+      expect(result.properties.q.default).toBe(null);
+    });
+
+    it("collapses a nullable array type and supplies items", () => {
+      expect(toGeminiSchema({ type: ["array", "null"] })).toEqual({
+        type: "ARRAY",
+        items: { type: "STRING" },
+      });
+    });
+
+    it("omits type when a type array is only null", () => {
+      const result = toGeminiSchema({ type: ["null"], format: "uint32" }) as Record<string, unknown>;
+      expect(result).not.toHaveProperty("type");
+      expect(result.format).toBe("uint32");
+    });
+
     it("removes additionalProperties field", () => {
       const schema = {
         type: "object",
