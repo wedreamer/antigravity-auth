@@ -1,4 +1,4 @@
-import type { ChatRequest, CompletionResult, OpenAITool } from "./types.ts"
+import type { ChatRequest, CompletionResult, OpenAIMessage, OpenAITool } from "./types.ts"
 
 export const BRIDGE_MODELS = [
   "gemini-3.8-flash",
@@ -108,6 +108,20 @@ function toolArgs(raw: string | undefined): Record<string, unknown> {
   }
 }
 
+function responseName(message: OpenAIMessage, prior: readonly OpenAIMessage[]): string {
+  if (typeof message.name === "string" && message.name.length > 0) return message.name
+  const id = message.tool_call_id
+  if (typeof id !== "string" || id.length === 0) return "tool"
+  for (let index = prior.length - 1; index >= 0; index--) {
+    const candidate = prior[index]
+    if (!candidate || (candidate.role !== "assistant" && candidate.role !== "model")) continue
+    const call = candidate.tool_calls?.find((item) => item.id === id)
+    const name = call?.function?.name
+    if (typeof name === "string" && name.length > 0) return name
+  }
+  return "tool"
+}
+
 export function toGeminiBody(request: ChatRequest, model: string): Record<string, unknown> {
   const contents: Array<Record<string, unknown>> = []
   const systemTexts: string[] = []
@@ -120,7 +134,7 @@ export function toGeminiBody(request: ChatRequest, model: string): Record<string
     }
     if (role === "tool") {
       const functionResponse: Record<string, unknown> = {
-        name: message.name ?? "tool",
+        name: responseName(message, (request.messages ?? []).slice(0, (request.messages ?? []).indexOf(message))),
         response: { result: text },
       }
       if (message.tool_call_id) functionResponse.id = message.tool_call_id
@@ -132,7 +146,14 @@ export function toGeminiBody(request: ChatRequest, model: string): Record<string
     }
     const calls = message.tool_calls
     if ((role === "assistant" || role === "model") && calls && calls.length > 0) {
-      const thoughtParts = partsFromContent(message.content)?.filter((part) => part.thought === true) ?? []
+      const placed = new Set(calls.map((call) => thoughtSignatureOf(call)).filter((sig) => typeof sig === "string"))
+      const thoughtParts = (partsFromContent(message.content)?.filter((part) => part.thought === true) ?? []).filter((part) => {
+        const thoughtText = typeof part.text === "string" ? part.text : ""
+        if (thoughtText.length > 0) return true
+        const sig = typeof part.thoughtSignature === "string" ? part.thoughtSignature : ""
+        if (sig.length === 0) return false
+        return !placed.has(sig)
+      })
       contents.push({
         role: "model",
         parts: [

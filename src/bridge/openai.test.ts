@@ -178,7 +178,7 @@ describe("toGeminiBody", () => {
     }])
   })
 
-  it("uses tool as the functionResponse name when the tool message has no name", () => {
+  it("uses tool as the functionResponse name only when no name and no matching call exist", () => {
     const body = toGeminiBody({
       messages: [{ role: "tool", content: "passage" }],
     }, model)
@@ -192,6 +192,92 @@ describe("toGeminiBody", () => {
         },
       }],
     }])
+  })
+
+  it("resolves functionResponse.name from the matching tool call when the tool message omits name", () => {
+    const body = toGeminiBody({
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{
+            id: "call_1767445",
+            type: "function",
+            function: { name: "cbeta_search", arguments: "{}" },
+          }],
+        },
+        { role: "tool", tool_call_id: "call_1767445", content: "hits" },
+      ],
+    }, model)
+    const contents = body.contents as Array<{
+      parts: Array<{ functionResponse?: { name?: string, id?: string } }>
+    }>
+    expect(contents[1]?.parts[0]?.functionResponse).toMatchObject({
+      name: "cbeta_search",
+      id: "call_1767445",
+    })
+  })
+
+  it("keeps an explicit tool message name over the matched call name", () => {
+    const body = toGeminiBody({
+      messages: [
+        {
+          role: "assistant",
+          tool_calls: [{
+            id: "call_1767445",
+            type: "function",
+            function: { name: "cbeta_search", arguments: "{}" },
+          }],
+        },
+        { role: "tool", tool_call_id: "call_1767445", name: "explicit_name", content: "hits" },
+      ],
+    }, model)
+    const contents = body.contents as Array<{
+      parts: Array<{ functionResponse?: { name?: string } }>
+    }>
+    expect(contents[1]?.parts[0]?.functionResponse?.name).toBe("explicit_name")
+  })
+
+  it("does not emit an empty thought part that duplicates the functionCall signature", () => {
+    const body = toGeminiBody({
+      messages: [{
+        role: "assistant",
+        content: [{ type: "think", think: "", encrypted: "SIG" }],
+        tool_calls: [{
+          id: "call_sig",
+          type: "function",
+          function: { name: "cbeta_search", arguments: "{}" },
+          extra_content: { google: { thought_signature: "SIG" } },
+        }],
+      }],
+    }, model)
+    const contents = body.contents as Array<{
+      parts: Array<{
+        thought?: boolean
+        text?: string
+        functionCall?: Record<string, unknown>
+        thoughtSignature?: string
+      }>
+    }>
+    expect(contents[0]?.parts.some((part) => part.thought === true)).toBe(false)
+    expect(contents[0]?.parts[0]?.functionCall).not.toHaveProperty("thoughtSignature")
+    expect(contents[0]?.parts[0]?.thoughtSignature).toBe("SIG")
+
+    const kept = toGeminiBody({
+      messages: [{
+        role: "assistant",
+        content: [{ type: "think", think: "kept", encrypted: "SIG" }],
+        tool_calls: [{
+          id: "call_sig",
+          type: "function",
+          function: { name: "cbeta_search", arguments: "{}" },
+          extra_content: { google: { thought_signature: "SIG" } },
+        }],
+      }],
+    }, model)
+    const keptContents = kept.contents as Array<{
+      parts: Array<{ thought?: boolean, text?: string }>
+    }>
+    expect(keptContents[0]?.parts.some((part) => part.thought === true && part.text === "kept")).toBe(true)
   })
 })
 
