@@ -43,6 +43,9 @@ antigravity-debug-*.log
 # Local agent session artifacts
 .omo/
 
+# Local AstrBot runtime data. Not part of this plugin.
+data/
+
 # Test artifacts
 test-file.ts
 
