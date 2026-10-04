@@ -105,8 +105,11 @@ describe("findPluginEntry", () => {
     );
     const result = findPluginEntry("/project");
     expect(result).not.toBeNull();
-    expect(result!.isPinned).toBe(false);
-    expect(result!.pinnedVersion).toBeNull();
+    if (result === null) {
+      throw new Error("expected plugin entry");
+    }
+    expect(result.isPinned).toBe(false);
+    expect(result.pinnedVersion).toBeNull();
   });
 
   it("returns entry with isPinned=true for versioned package", async () => {
@@ -117,8 +120,11 @@ describe("findPluginEntry", () => {
     );
     const result = findPluginEntry("/project");
     expect(result).not.toBeNull();
-    expect(result!.isPinned).toBe(true);
-    expect(result!.pinnedVersion).toBe("1.5.0");
+    if (result === null) {
+      throw new Error("expected plugin entry");
+    }
+    expect(result.isPinned).toBe(true);
+    expect(result.pinnedVersion).toBe("1.5.0");
   });
 
   it("returns isPinned=false for @latest entry", async () => {
@@ -128,7 +134,10 @@ describe("findPluginEntry", () => {
       JSON.stringify({ plugin: ["opencode-antigravity-auth@latest"] }),
     );
     const result = findPluginEntry("/project");
-    expect(result!.isPinned).toBe(false);
-    expect(result!.pinnedVersion).toBeNull();
+    if (result === null) {
+      throw new Error("expected plugin entry");
+    }
+    expect(result.isPinned).toBe(false);
+    expect(result.pinnedVersion).toBeNull();
   });
 });

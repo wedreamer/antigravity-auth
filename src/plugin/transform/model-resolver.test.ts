@@ -3,7 +3,6 @@ import {
   resolveModelWithTier,
   resolveModelWithVariant,
   resolveModelForHeaderStyle,
-  resolveAntigravityGemini35FlashBackendModel,
   resolveAntigravityGemini36FlashBackendModel,
   resolveAntigravityGemini37FlashBackendModel,
   resolveAntigravityGemini38FlashBackendModel,

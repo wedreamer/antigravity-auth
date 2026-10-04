@@ -15,11 +15,16 @@ describe("outbound proxy", () => {
   })
 
   it("sends upstream https through the configured proxy", async () => {
-    const seen: string[] = []
-    const proxy = net.createServer((socket) => {
-      socket.once("data", (chunk) => {
-        seen.push(chunk.toString("utf8").split("\r\n")[0] ?? "")
-        socket.end()
+    const proxy = net.createServer()
+    const connectLine = new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("proxy received no CONNECT")), 1500)
+      proxy.on("connection", (socket) => {
+        socket.once("data", (chunk) => {
+          clearTimeout(timer)
+          const line = chunk.toString("utf8").split("\r\n")[0] ?? ""
+          socket.end()
+          resolve(line)
+        })
       })
     })
     await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()))
@@ -32,21 +37,14 @@ describe("outbound proxy", () => {
         method: "POST",
         signal: controller.signal,
       }).catch(() => undefined)
-      const line = await new Promise<string>((resolve, reject) => {
-        const timer = setTimeout(() => reject(new Error("proxy received no CONNECT")), 1500)
-        const check = setInterval(() => {
-          const first = seen[0]
-          if (!first) return
-          clearInterval(check)
-          clearTimeout(timer)
-          resolve(first)
-        }, 20)
-      })
+      const line = await connectLine
       expect(line).toContain("CONNECT oauth2.googleapis.com:443")
       controller.abort()
       await pending
     } finally {
-      proxy.closeAllConnections?.()
+      if ("closeAllConnections" in proxy && typeof proxy.closeAllConnections === "function") {
+        proxy.closeAllConnections()
+      }
       await new Promise<void>((resolve) => proxy.close(() => resolve()))
     }
   })

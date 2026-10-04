@@ -6,20 +6,20 @@ import type { GoogleSearchConfig } from "./transform/types";
 declare function buildSignatureSessionKey(sessionId: string, model?: string, conversationKey?: string, projectKey?: string): string;
 declare function hashConversationSeed(seed: string): string;
 declare function extractTextFromContent(content: unknown): string;
-declare function extractConversationSeedFromMessages(messages: any[]): string;
-declare function extractConversationSeedFromContents(contents: any[]): string;
+declare function extractConversationSeedFromMessages(messages: unknown[]): string;
+declare function extractConversationSeedFromContents(contents: unknown[]): string;
 declare function resolveConversationKey(requestPayload: Record<string, unknown>): string | undefined;
 declare function resolveProjectKey(candidate?: unknown, fallback?: string): string | undefined;
-declare function isGeminiToolUsePart(part: any): boolean;
-declare function isGeminiThinkingPart(part: any): boolean;
-declare function ensureThoughtSignature(part: any, sessionId: string): any;
-declare function hasSignedThinkingPart(part: any, sessionId?: string): boolean;
-declare function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSessionKey: string): any[];
-declare function hasToolUseInContents(contents: any[]): boolean;
-declare function hasSignedThinkingInContents(contents: any[], sessionId?: string): boolean;
-declare function hasToolUseInMessages(messages: any[]): boolean;
-declare function hasSignedThinkingInMessages(messages: any[], sessionId?: string): boolean;
-declare function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSessionKey: string): any[];
+declare function isGeminiToolUsePart(part: unknown): boolean;
+declare function isGeminiThinkingPart(part: unknown): boolean;
+declare function ensureThoughtSignature(part: unknown, sessionId: string): unknown;
+declare function hasSignedThinkingPart(part: unknown, sessionId?: string): boolean;
+declare function ensureThinkingBeforeToolUseInContents(contents: unknown[], signatureSessionKey: string): unknown[];
+declare function hasToolUseInContents(contents: unknown[]): boolean;
+declare function hasSignedThinkingInContents(contents: unknown[], sessionId?: string): boolean;
+declare function hasToolUseInMessages(messages: unknown[]): boolean;
+declare function hasSignedThinkingInMessages(messages: unknown[], sessionId?: string): boolean;
+declare function ensureThinkingBeforeToolUseInMessages(messages: unknown[], signatureSessionKey: string): unknown[];
 /**
  * Gets the stable session ID for this plugin instance.
  */
@@ -75,7 +75,7 @@ export declare function buildThinkingWarmupBody(bodyText: string | undefined, is
  * For streaming SSE responses, uses TransformStream for true real-time incremental streaming.
  * Thinking/reasoning tokens are transformed and forwarded immediately as they arrive.
  */
-export declare function transformAntigravityResponse(response: Response, streaming: boolean, debugContext?: AntigravityDebugContext | null, requestedModel?: string, projectId?: string, endpoint?: string, effectiveModel?: string, sessionId?: string, toolDebugMissing?: number, toolDebugSummary?: string, toolDebugPayload?: string, debugLines?: string[], onSafetyRatings?: (ratings: import("./core/streaming/types").SafetyRating[]) => void): Promise<Response>;
+export declare function transformAntigravityResponse(response: Response, streaming: boolean, debugContext?: AntigravityDebugContext | null, requestedModel?: string, projectId?: string, endpoint?: string, effectiveModel?: string, sessionId?: string, _toolDebugMissing?: number, _toolDebugSummary?: string, _toolDebugPayload?: string, debugLines?: string[], onSafetyRatings?: (ratings: import("./core/streaming/types").SafetyRating[]) => void): Promise<Response>;
 export declare const __testExports: {
     buildSignatureSessionKey: typeof buildSignatureSessionKey;
     hashConversationSeed: typeof hashConversationSeed;

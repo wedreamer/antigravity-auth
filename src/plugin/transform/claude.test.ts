@@ -13,6 +13,35 @@ import {
 } from "./claude";
 import type { RequestPayload } from "./types";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dig(root: unknown, ...keys: Array<string | number>): unknown {
+  let current = root;
+  for (const key of keys) {
+    if (typeof key === "number") {
+      if (!Array.isArray(current) || key < 0 || key >= current.length) {
+        throw new Error(`expected index ${key}`);
+      }
+      current = current[key];
+      continue;
+    }
+    if (!isRecord(current)) {
+      throw new Error(`expected object for ${key}`);
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+function opt(value: unknown, key: string): unknown {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return value[key];
+}
+
 describe("isClaudeModel", () => {
   it("returns true for claude model names", () => {
     expect(isClaudeModel("claude-sonnet-4-5")).toBe(true);
@@ -86,8 +115,8 @@ describe("configureClaudeToolConfig", () => {
     configureClaudeToolConfig(payload);
     
     expect(payload.toolConfig).toBeDefined();
-    expect((payload.toolConfig as any).functionCallingConfig).toBeDefined();
-    expect((payload.toolConfig as any).functionCallingConfig.mode).toBe("VALIDATED");
+    expect(dig(payload, "toolConfig", "functionCallingConfig")).toBeDefined();
+    expect(dig(payload, "toolConfig", "functionCallingConfig", "mode")).toBe("VALIDATED");
   });
 
   it("adds functionCallingConfig to existing toolConfig", () => {
@@ -96,8 +125,8 @@ describe("configureClaudeToolConfig", () => {
     };
     configureClaudeToolConfig(payload);
     
-    expect((payload.toolConfig as any).someOtherConfig).toBe(true);
-    expect((payload.toolConfig as any).functionCallingConfig.mode).toBe("VALIDATED");
+    expect(dig(payload, "toolConfig", "someOtherConfig")).toBe(true);
+    expect(dig(payload, "toolConfig", "functionCallingConfig", "mode")).toBe("VALIDATED");
   });
 
   it("sets mode to VALIDATED on existing functionCallingConfig", () => {
@@ -108,8 +137,8 @@ describe("configureClaudeToolConfig", () => {
     };
     configureClaudeToolConfig(payload);
     
-    expect((payload.toolConfig as any).functionCallingConfig.existingKey).toBe("value");
-    expect((payload.toolConfig as any).functionCallingConfig.mode).toBe("VALIDATED");
+    expect(dig(payload, "toolConfig", "functionCallingConfig", "existingKey")).toBe("value");
+    expect(dig(payload, "toolConfig", "functionCallingConfig", "mode")).toBe("VALIDATED");
   });
 
   it("overwrites existing mode", () => {
@@ -120,7 +149,7 @@ describe("configureClaudeToolConfig", () => {
     };
     configureClaudeToolConfig(payload);
     
-    expect((payload.toolConfig as any).functionCallingConfig.mode).toBe("VALIDATED");
+    expect(dig(payload, "toolConfig", "functionCallingConfig", "mode")).toBe("VALIDATED");
   });
 
   it("handles null toolConfig gracefully", () => {
@@ -287,9 +316,8 @@ describe("appendClaudeThinkingHint", () => {
       };
       appendClaudeThinkingHint(payload);
       
-      const sys = payload.systemInstruction as any;
-      expect(sys.parts[0].text).toBe("First part.");
-      expect(sys.parts[1].text).toBe(`Last part.\n\n${CLAUDE_INTERLEAVED_THINKING_HINT}`);
+      expect(dig(payload, "systemInstruction", "parts", 0, "text")).toBe("First part.");
+      expect(dig(payload, "systemInstruction", "parts", 1, "text")).toBe(`Last part.\n\n${CLAUDE_INTERLEAVED_THINKING_HINT}`);
     });
 
     it("appends hint to single text part", () => {
@@ -300,8 +328,7 @@ describe("appendClaudeThinkingHint", () => {
       };
       appendClaudeThinkingHint(payload);
       
-      const sys = payload.systemInstruction as any;
-      expect(sys.parts[0].text).toBe(`Only part.\n\n${CLAUDE_INTERLEAVED_THINKING_HINT}`);
+      expect(dig(payload, "systemInstruction", "parts", 0, "text")).toBe(`Only part.\n\n${CLAUDE_INTERLEAVED_THINKING_HINT}`);
     });
 
     it("creates new text part when no text parts exist", () => {
@@ -312,9 +339,8 @@ describe("appendClaudeThinkingHint", () => {
       };
       appendClaudeThinkingHint(payload);
       
-      const sys = payload.systemInstruction as any;
-      expect(sys.parts).toHaveLength(2);
-      expect(sys.parts[1].text).toBe(CLAUDE_INTERLEAVED_THINKING_HINT);
+      expect(dig(payload, "systemInstruction", "parts")).toHaveLength(2);
+      expect(dig(payload, "systemInstruction", "parts", 1, "text")).toBe(CLAUDE_INTERLEAVED_THINKING_HINT);
     });
 
     it("creates parts array when not present", () => {
@@ -323,8 +349,7 @@ describe("appendClaudeThinkingHint", () => {
       };
       appendClaudeThinkingHint(payload);
       
-      const sys = payload.systemInstruction as any;
-      expect(sys.parts).toEqual([{ text: CLAUDE_INTERLEAVED_THINKING_HINT }]);
+      expect(dig(payload, "systemInstruction", "parts")).toEqual([{ text: CLAUDE_INTERLEAVED_THINKING_HINT }]);
     });
   });
 
@@ -399,10 +424,9 @@ describe("normalizeClaudeTools", () => {
       expect(result.toolDebugMissing).toBe(0);
       expect(result.toolDebugSummaries).toContain("decl=get_weather,src=functionDeclarations,hasSchema=y");
       
-      const tools = payload.tools as any[];
-      expect(tools).toHaveLength(1);
-      expect(tools[0].functionDeclarations).toHaveLength(1);
-      expect(tools[0].functionDeclarations[0].name).toBe("get_weather");
+      expect(dig(payload, "tools")).toHaveLength(1);
+      expect(dig(payload, "tools", 0, "functionDeclarations")).toHaveLength(1);
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toBe("get_weather");
     });
 
     it("handles multiple functionDeclarations", () => {
@@ -417,8 +441,7 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations).toHaveLength(2);
+      expect(dig(payload, "tools", 0, "functionDeclarations")).toHaveLength(2);
     });
   });
 
@@ -444,8 +467,7 @@ describe("normalizeClaudeTools", () => {
       
       expect(result.toolDebugSummaries).toContain("decl=search,src=function/custom,hasSchema=y");
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations[0].name).toBe("search");
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toBe("search");
     });
 
     it("normalizes custom-style tools", () => {
@@ -481,8 +503,7 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations[0].name).toBe("direct_tool");
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toBe("direct_tool");
     });
   });
 
@@ -501,11 +522,10 @@ describe("normalizeClaudeTools", () => {
       
       expect(result.toolDebugMissing).toBe(1);
       
-      const tools = payload.tools as any[];
-      const params = tools[0].functionDeclarations[0].parameters;
-      expect(params.type).toBe("object");
-      expect(params.properties._placeholder).toBeDefined();
-      expect(params.required).toContain("_placeholder");
+      const params = dig(payload, "tools", 0, "functionDeclarations", 0, "parameters");
+      expect(dig(params, "type")).toBe("object");
+      expect(dig(params, "properties", "_placeholder")).toBeDefined();
+      expect(dig(params, "required")).toContain("_placeholder");
     });
 
     it("adds placeholder when schema has no properties", () => {
@@ -520,9 +540,8 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      const params = tools[0].functionDeclarations[0].parameters;
-      expect(params.properties._placeholder).toBeDefined();
+      const params = dig(payload, "tools", 0, "functionDeclarations", 0, "parameters");
+      expect(dig(params, "properties", "_placeholder")).toBeDefined();
     });
 
     it("preserves existing properties", () => {
@@ -542,10 +561,9 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      const params = tools[0].functionDeclarations[0].parameters;
-      expect(params.properties.existingProp).toBeDefined();
-      expect(params.properties._placeholder).toBeUndefined();
+      const params = dig(payload, "tools", 0, "functionDeclarations", 0, "parameters");
+      expect(dig(params, "properties", "existingProp")).toBeDefined();
+      expect(dig(params, "properties", "_placeholder")).toBeUndefined();
     });
 
     it("cleans schema using provided function", () => {
@@ -564,10 +582,9 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, realClean);
       
-      const tools = payload.tools as any[];
-      const params = tools[0].functionDeclarations[0].parameters;
-      expect(params.$schema).toBeUndefined();
-      expect(params.properties.arg).toBeDefined();
+      const params = dig(payload, "tools", 0, "functionDeclarations", 0, "parameters");
+      expect(dig(params, "$schema")).toBeUndefined();
+      expect(dig(params, "properties", "arg")).toBeDefined();
     });
   });
 
@@ -584,8 +601,7 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations[0].name).toBe("tool_with_special_chars_");
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toBe("tool_with_special_chars_");
     });
 
     it("truncates long tool names to 64 characters", () => {
@@ -601,8 +617,7 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations[0].name).toHaveLength(64);
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toHaveLength(64);
     });
 
     it("generates name when missing", () => {
@@ -617,8 +632,7 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools[0].functionDeclarations[0].name).toBe("tool-0");
+      expect(dig(payload, "tools", 0, "functionDeclarations", 0, "name")).toBe("tool-0");
     });
   });
 
@@ -638,10 +652,9 @@ describe("normalizeClaudeTools", () => {
       
       normalizeClaudeTools(payload, identityClean);
       
-      const tools = payload.tools as any[];
-      expect(tools).toHaveLength(2);
-      expect(tools[0].functionDeclarations).toBeDefined();
-      expect(tools[1].codeExecution).toBeDefined();
+      expect(dig(payload, "tools")).toHaveLength(2);
+      expect(dig(payload, "tools", 0, "functionDeclarations")).toBeDefined();
+      expect(dig(payload, "tools", 1, "codeExecution")).toBeDefined();
     });
   });
 });
@@ -657,7 +670,7 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    expect((payload.toolConfig as any)?.functionCallingConfig?.mode).toBe("VALIDATED");
+    expect(opt(opt(payload.toolConfig, "functionCallingConfig"), "mode")).toBe("VALIDATED");
   });
 
   it("applies thinking config for thinking models", () => {
@@ -669,9 +682,8 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    const genConfig = payload.generationConfig as any;
-    expect(genConfig.thinkingConfig.include_thoughts).toBe(true);
-    expect(genConfig.thinkingConfig.thinking_budget).toBe(8192);
+    expect(dig(payload, "generationConfig", "thinkingConfig", "include_thoughts")).toBe(true);
+    expect(dig(payload, "generationConfig", "thinkingConfig", "thinking_budget")).toBe(8192);
   });
 
   it("uses tierThinkingBudget over normalizedThinking.thinkingBudget", () => {
@@ -684,8 +696,7 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    const genConfig = payload.generationConfig as any;
-    expect(genConfig.thinkingConfig.thinking_budget).toBe(32768);
+    expect(dig(payload, "generationConfig", "thinkingConfig", "thinking_budget")).toBe(32768);
   });
 
   it("ensures maxOutputTokens for thinking models with budget", () => {
@@ -699,8 +710,7 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    const genConfig = payload.generationConfig as any;
-    expect(genConfig.maxOutputTokens).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
+    expect(dig(payload, "generationConfig", "maxOutputTokens")).toBe(CLAUDE_THINKING_MAX_OUTPUT_TOKENS);
   });
 
   it("does not apply thinking config for non-thinking models", () => {
@@ -712,8 +722,7 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    const genConfig = payload.generationConfig as any;
-    expect(genConfig?.thinkingConfig).toBeUndefined();
+    expect(opt(payload.generationConfig, "thinkingConfig")).toBeUndefined();
   });
 
   it("appends thinking hint for thinking models with tools", () => {
@@ -781,9 +790,8 @@ describe("applyClaudeTransforms", () => {
       cleanJSONSchema: mockCleanJSONSchema,
     });
     
-    const genConfig = payload.generationConfig as any;
-    expect(genConfig.stopSequences).toEqual(["END"]);
-    expect(genConfig.stop_sequences).toBeUndefined();
+    expect(dig(payload, "generationConfig", "stopSequences")).toEqual(["END"]);
+    expect(dig(payload, "generationConfig", "stop_sequences")).toBeUndefined();
   });
 });
 

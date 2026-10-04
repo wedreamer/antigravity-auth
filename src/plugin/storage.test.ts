@@ -445,7 +445,11 @@ describe("Storage Migration", () => {
       await ensureGitignore(configDir);
 
       expect(fs.writeFile).toHaveBeenCalled();
-      const [path, content] = vi.mocked(fs.writeFile).mock.calls[0]!;
+      const writeCall = vi.mocked(fs.writeFile).mock.calls[0];
+      if (!writeCall) {
+        throw new Error("expected writeFile call");
+      }
+      const [path, content] = writeCall;
       expect(path).toContain(".gitignore");
       expect(content).toContain("antigravity-accounts.json");
       expect(content).toContain("antigravity-signature-cache.json");
@@ -459,7 +463,11 @@ describe("Storage Migration", () => {
       await ensureGitignore(configDir);
 
       expect(fs.appendFile).toHaveBeenCalled();
-      const [path, content] = vi.mocked(fs.appendFile).mock.calls[0]!;
+      const appendCall = vi.mocked(fs.appendFile).mock.calls[0];
+      if (!appendCall) {
+        throw new Error("expected appendFile call");
+      }
+      const [path, content] = appendCall;
       expect(path).toContain(".gitignore");
       expect(content).toContain("antigravity-accounts.json");
       expect((content as string).startsWith("\n")).toBe(true);
@@ -508,7 +516,11 @@ describe("Storage Migration", () => {
       ensureGitignoreSync(configDir);
 
       expect(writeFileSync).toHaveBeenCalled();
-      const [path, content] = vi.mocked(writeFileSync).mock.calls[0]!;
+      const writeCall = vi.mocked(writeFileSync).mock.calls[0];
+      if (!writeCall) {
+        throw new Error("expected writeFileSync call");
+      }
+      const [path, content] = writeCall;
       expect(path).toContain(".gitignore");
       expect(content).toContain("antigravity-accounts.json");
       expect(content).toContain("antigravity-signature-cache.json");
@@ -523,7 +535,11 @@ describe("Storage Migration", () => {
       ensureGitignoreSync(configDir);
 
       expect(appendFileSync).toHaveBeenCalled();
-      const [path, content] = vi.mocked(appendFileSync).mock.calls[0]!;
+      const appendCall = vi.mocked(appendFileSync).mock.calls[0];
+      if (!appendCall) {
+        throw new Error("expected appendFileSync call");
+      }
+      const [path, content] = appendCall;
       expect(path).toContain(".gitignore");
       expect(content).toContain("antigravity-accounts.json");
       expect((content as string).startsWith("\n")).toBe(true);

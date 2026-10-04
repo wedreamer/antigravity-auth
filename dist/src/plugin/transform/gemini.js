@@ -68,6 +68,13 @@ export function toGeminiSchema(schema) {
             // Convert type to uppercase for Gemini API
             result[key] = value.toUpperCase();
         }
+        else if (key === "type" && Array.isArray(value)) {
+            // JSON Schema nullable unions are lists. Gemini Schema.type is one enum.
+            const picked = value.find((item) => typeof item === "string" && item !== "null");
+            if (typeof picked === "string") {
+                result[key] = picked.toUpperCase();
+            }
+        }
         else if (key === "properties" && typeof value === "object" && value !== null) {
             // Recursively transform nested property schemas
             const props = {};
@@ -308,13 +315,13 @@ export function applyGeminiTransforms(payload, options) {
     // Note: The old googleSearchRetrieval with dynamicRetrievalConfig is deprecated
     // The new API doesn't support threshold - the model decides when to search automatically
     if (googleSearch && googleSearch.mode === 'auto') {
-        const tools = payload.tools || [];
+        const tools = Array.isArray(payload.tools) ? payload.tools : [];
         if (!payload.tools) {
             payload.tools = tools;
         }
         // Add Google Search tool using new API format for Gemini 2.0+
         // See: https://ai.google.dev/gemini-api/docs/grounding
-        payload.tools.push({
+        tools.push({
             googleSearch: {},
         });
     }

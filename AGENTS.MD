@@ -59,6 +59,7 @@ OpenCode plugin that rewrites Gemini-shaped fetches into Antigravity Cloud Code 
 - Semicolons and extensionless relative imports are the norm in src/plugin.ts, src/plugin, src/hooks, src/v2, and src/antigravity. Do not treat "no semicolons + .ts extensions" as the repo rule.
 - index.ts imports with .js specifiers (./src/plugin.js, ./src/v2/adapter.js).
 - zod ^4. Tests are colocated *.test.ts (Vitest).
+- ESLint flat config (`eslint.config.js`) uses `typescript-eslint` strict. `npm run lint` must pass. Biome is not used. Do not globally turn off `no-explicit-any` or `no-unused-vars`. `no-undef` stays off because TypeScript already checks names.
 - createLogger("module") before TUI app.log.
 
 ## ANTI-PATTERNS (THIS PROJECT)
@@ -79,6 +80,7 @@ OpenCode plugin that rewrites Gemini-shaped fetches into Antigravity Cloud Code 
 npm install
 npm run build
 npm run typecheck
+npm run lint
 npm test
 npx vitest run src/plugin/auth.test.ts
 npm run bridge
@@ -91,3 +93,9 @@ npm run pack:astrbot
 - Windows paths split: loader uses XDG or ~/.config/opencode; some debug paths use %APPDATA%.
 - index.ts default export has setup() for v2 (setupV2) and server() for v1 (AntigravityCLIOAuthPlugin).
 - Child maps: src/plugin/AGENTS.md, src/plugin/transform/AGENTS.md, src/plugin/config/AGENTS.md, src/plugin/recovery/AGENTS.md, src/bridge/AGENTS.md, src/hooks/auto-update-checker/AGENTS.md.
+- Root knowledge file stays `AGENTS.MD`. Do not rename it to `AGENTS.md`.
+- `src/plugin.ts`, `src/plugin/request.ts`, and `src/plugin/request-helpers.ts` stay unsplit.
+- Node engine is `>=24.11.0`, the `lts/krypton` line. `.nvmrc` is `lts/krypton`. CI and release use that alias. `@types/node` tracks 24.
+- TypeScript stays on 5.9. `typescript-eslint@8.71` peers `<6.1.0`, so TypeScript 7 is not the toolchain yet. undici is 8 because Node 24 satisfies its `>=22.19` engine.
+- `npm run typecheck` covers `index.ts` and `script/*.ts`. `noUnusedLocals` and `noUnusedParameters` are on. `exactOptionalPropertyTypes` stays off until that error set is cleared on its own.
+- `lib` keeps `DOM` because `RequestInfo`, `HeadersInit`, and `BodyInit` come from that lib. `jsx` is unset; the repo has no TSX.

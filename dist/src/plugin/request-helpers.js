@@ -1,9 +1,20 @@
 import { getKeepThinking } from "./config";
 import { createLogger } from "./logger";
-import { cacheSignature } from "./cache";
 import { EMPTY_SCHEMA_PLACEHOLDER_NAME, EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION, SKIP_THOUGHT_SIGNATURE, } from "../constants";
 import { processImageData } from "./image-saver";
 const log = createLogger("request-helpers");
+function asJsonRecord(value) {
+    return value;
+}
+function nestedRecord(value) {
+    if (!value || typeof value !== "object") {
+        return undefined;
+    }
+    return value;
+}
+function asJsonRecords(value) {
+    return value;
+}
 const ANTIGRAVITY_PREVIEW_LINK = "https://goo.gle/enable-preview-features"; // TODO: Update to Antigravity link if available
 // ============================================================================
 // JSON SCHEMA CLEANING FOR ANTIGRAVITY API
@@ -30,9 +41,6 @@ const UNSUPPORTED_KEYWORDS = [
  * Appends a hint to a schema's description field.
  */
 function appendDescriptionHint(schema, hint) {
-    if (!schema || typeof schema !== "object") {
-        return schema;
-    }
     const existing = typeof schema.description === "string" ? schema.description : "";
     const newDescription = existing ? `${existing} (${hint})` : hint;
     return { ...schema, description: newDescription };
@@ -172,36 +180,46 @@ function mergeAllOf(schema) {
     if (Array.isArray(schema)) {
         return schema.map(item => mergeAllOf(item));
     }
-    let result = { ...schema };
+    const result = { ...schema };
     // If this object has allOf, merge its contents
-    if (Array.isArray(result.allOf)) {
+    const allOf = result.allOf;
+    if (Array.isArray(allOf)) {
         const merged = {};
         const mergedRequired = [];
-        for (const item of result.allOf) {
+        for (const item of allOf) {
             if (!item || typeof item !== "object")
                 continue;
+            const itemRecord = asJsonRecord(item);
             // Merge properties
-            if (item.properties && typeof item.properties === "object") {
-                merged.properties = { ...merged.properties, ...item.properties };
+            if (itemRecord.properties && typeof itemRecord.properties === "object") {
+                const itemProps = asJsonRecord(itemRecord.properties);
+                const existingProps = merged.properties && typeof merged.properties === "object"
+                    ? asJsonRecord(merged.properties)
+                    : {};
+                merged.properties = { ...existingProps, ...itemProps };
             }
             // Merge required arrays
-            if (Array.isArray(item.required)) {
-                for (const req of item.required) {
-                    if (!mergedRequired.includes(req)) {
-                        mergedRequired.push(req);
+            if (Array.isArray(itemRecord.required)) {
+                for (const req of itemRecord.required) {
+                    const reqKey = req;
+                    if (!mergedRequired.includes(reqKey)) {
+                        mergedRequired.push(reqKey);
                     }
                 }
             }
             // Copy other fields from allOf items
-            for (const [key, value] of Object.entries(item)) {
+            for (const [key, value] of Object.entries(itemRecord)) {
                 if (key !== "properties" && key !== "required" && merged[key] === undefined) {
                     merged[key] = value;
                 }
             }
         }
         // Apply merged content to result
-        if (merged.properties) {
-            result.properties = { ...result.properties, ...merged.properties };
+        if (merged.properties && typeof merged.properties === "object") {
+            const existingProps = result.properties && typeof result.properties === "object"
+                ? asJsonRecord(result.properties)
+                : {};
+            result.properties = { ...existingProps, ...asJsonRecord(merged.properties) };
         }
         if (mergedRequired.length > 0) {
             const existingRequired = Array.isArray(result.required) ? result.required : [];
@@ -227,25 +245,38 @@ function mergeAllOf(schema) {
  * Scores a schema option for selection in anyOf/oneOf flattening.
  * Higher score = more preferred.
  */
+function schemaTypeName(type) {
+    if (typeof type === "string" || typeof type === "number" || typeof type === "boolean") {
+        return String(type);
+    }
+    if (type == null) {
+        return "null";
+    }
+    if (Array.isArray(type)) {
+        return type.map((item) => schemaTypeName(item)).join(",");
+    }
+    return String(type);
+}
 function scoreSchemaOption(schema) {
     if (!schema || typeof schema !== "object") {
         return { score: 0, typeName: "unknown" };
     }
-    const type = schema.type;
+    const record = schema;
+    const type = record.type;
     // Object or has properties = highest priority
-    if (type === "object" || schema.properties) {
+    if (type === "object" || record.properties) {
         return { score: 3, typeName: "object" };
     }
     // Array or has items = second priority
-    if (type === "array" || schema.items) {
+    if (type === "array" || record.items) {
         return { score: 2, typeName: "array" };
     }
     // Any other non-null type
     if (type && type !== "null") {
-        return { score: 1, typeName: type };
+        return { score: 1, typeName: schemaTypeName(type) };
     }
     // Null or no type
-    return { score: 0, typeName: type || "null" };
+    return { score: 0, typeName: "null" };
 }
 /**
  * Checks if an anyOf/oneOf array represents enum choices.
@@ -265,29 +296,30 @@ function tryMergeEnumFromUnion(options) {
         if (!option || typeof option !== "object") {
             return null;
         }
+        const record = option;
         // Check for const value
-        if (option.const !== undefined) {
-            enumValues.push(String(option.const));
+        if (record.const !== undefined) {
+            enumValues.push(String(record.const));
             continue;
         }
         // Check for single-value enum
-        if (Array.isArray(option.enum) && option.enum.length === 1) {
-            enumValues.push(String(option.enum[0]));
+        if (Array.isArray(record.enum) && record.enum.length === 1) {
+            enumValues.push(String(record.enum[0]));
             continue;
         }
         // Check for multi-value enum (merge all values)
-        if (Array.isArray(option.enum) && option.enum.length > 0) {
-            for (const val of option.enum) {
+        if (Array.isArray(record.enum) && record.enum.length > 0) {
+            for (const val of record.enum) {
                 enumValues.push(String(val));
             }
             continue;
         }
         // If option has complex structure (properties, items, etc.), it's not a simple enum
-        if (option.properties || option.items || option.anyOf || option.oneOf || option.allOf) {
+        if (record.properties || record.items || record.anyOf || record.oneOf || record.allOf) {
             return null;
         }
         // If option has only type (no const/enum), it's not an enum pattern
-        if (option.type && !option.const && !option.enum) {
+        if (record.type && !record.const && !record.enum) {
             return null;
         }
     }
@@ -317,11 +349,12 @@ function flattenAnyOfOneOf(schema) {
             const options = result[unionKey];
             const parentDesc = typeof result.description === "string" ? result.description : "";
             // First, check if this is an enum pattern (anyOf with const/enum values)
-            // This is crucial for tools like WebFetch where format: anyOf[{const:"text"},{const:"markdown"},{const:"html"}]
+            // This is crucial for tools like WebFetch where format: JsonValueOf[{const:"text"},{const:"markdown"},{const:"html"}]
             const mergedEnum = tryMergeEnumFromUnion(options);
             if (mergedEnum !== null) {
                 // This is an enum pattern - merge all values into a single enum
-                const { [unionKey]: _, ...rest } = result;
+                const { [unionKey]: omittedUnion, ...rest } = result;
+                void omittedUnion;
                 result = {
                     ...rest,
                     type: "string",
@@ -349,7 +382,7 @@ function flattenAnyOfOneOf(schema) {
                 }
             }
             // Select the best option and flatten it recursively
-            let selected = flattenAnyOfOneOf(options[bestIdx]) || { type: "string" };
+            let selected = (flattenAnyOfOneOf(options[bestIdx]) || { type: "string" });
             // Preserve parent description
             if (parentDesc) {
                 const childDesc = typeof selected.description === "string" ? selected.description : "";
@@ -366,7 +399,9 @@ function flattenAnyOfOneOf(schema) {
                 selected = appendDescriptionHint(selected, hint);
             }
             // Replace result with selected schema, preserving other fields
-            const { [unionKey]: _, description: __, ...rest } = result;
+            const { [unionKey]: omittedUnion, description: omittedDescription, ...rest } = result;
+            void omittedUnion;
+            void omittedDescription;
             result = { ...rest, ...selected };
         }
     }
@@ -416,9 +451,10 @@ function flattenTypeArrays(schema, nullableFields, currentPath) {
             const processed = flattenTypeArrays(propValue, localNullableFields, propPath);
             newProps[propKey] = processed;
             // Track nullable fields for required array cleanup
+            const processedRecord = asJsonRecord(processed);
             if (processed && typeof processed === "object" &&
-                typeof processed.description === "string" &&
-                processed.description.includes("nullable")) {
+                typeof processedRecord.description === "string" &&
+                processedRecord.description.includes("nullable")) {
                 const objectPath = currentPath || "";
                 const existing = localNullableFields.get(objectPath) || [];
                 existing.push(propKey);
@@ -428,12 +464,13 @@ function flattenTypeArrays(schema, nullableFields, currentPath) {
         result.properties = newProps;
     }
     // Remove nullable fields from required array
-    if (Array.isArray(result.required) && !nullableFields) {
+    const requiredFields = result.required;
+    if (Array.isArray(requiredFields) && !nullableFields) {
         // Only at root level, filter out nullable fields
         const nullableAtRoot = localNullableFields.get("") || [];
         if (nullableAtRoot.length > 0) {
-            result.required = result.required.filter((r) => !nullableAtRoot.includes(r));
-            if (result.required.length === 0) {
+            result.required = requiredFields.filter((field) => typeof field !== "string" || !nullableAtRoot.includes(field));
+            if (Array.isArray(result.required) && result.required.length === 0) {
                 delete result.required;
             }
         }
@@ -490,14 +527,16 @@ function cleanupRequiredFields(schema) {
     if (Array.isArray(schema)) {
         return schema.map(item => cleanupRequiredFields(item));
     }
-    let result = { ...schema };
+    const result = { ...schema };
     // Clean up required array if properties exist
-    if (Array.isArray(result.required) && result.properties && typeof result.properties === "object") {
-        const validRequired = result.required.filter((req) => Object.prototype.hasOwnProperty.call(result.properties, req));
+    const requiredFields = result.required;
+    const properties = result.properties;
+    if (Array.isArray(requiredFields) && properties && typeof properties === "object") {
+        const validRequired = requiredFields.filter((req) => Object.prototype.hasOwnProperty.call(properties, req));
         if (validRequired.length === 0) {
             delete result.required;
         }
-        else if (validRequired.length !== result.required.length) {
+        else if (validRequired.length !== requiredFields.length) {
             result.required = validRequired;
         }
     }
@@ -520,7 +559,7 @@ function addEmptySchemaPlaceholder(schema) {
     if (Array.isArray(schema)) {
         return schema.map(item => addEmptySchemaPlaceholder(item));
     }
-    let result = { ...schema };
+    const result = { ...schema };
     // Check if this is an empty object schema
     const isObjectType = result.type === "object";
     if (isObjectType) {
@@ -679,7 +718,9 @@ export function extractVariantThinkingConfig(providerOptions, generationConfig) 
  * For Claude thinking models, we keep thinking enabled even in multi-turn conversations.
  * The filterUnsignedThinkingBlocks function will handle signature validation/restoration.
  */
-export function resolveThinkingConfig(userConfig, isThinkingModel, _isClaudeModel, _hasAssistantHistory) {
+export function resolveThinkingConfig(userConfig, isThinkingModel, isClaudeModel, hasAssistantHistory) {
+    void isClaudeModel;
+    void hasAssistantHistory;
     // For thinking-capable models (including Claude thinking models), enable thinking by default
     // The signature validation/restoration is handled by filterUnsignedThinkingBlocks
     if (isThinkingModel && !userConfig) {
@@ -928,7 +969,7 @@ function filterContentArray(contentArray, sessionId, getCachedSignatureFn, isCla
             delete sanitizedToolBlock.thoughtSignature;
             delete sanitizedToolBlock.thought_signature;
             delete sanitizedToolBlock.thought;
-            filtered.push(sanitizedToolBlock);
+            filtered.push(asJsonRecord(sanitizedToolBlock));
             continue;
         }
         const isThinking = isThinkingPart(item);
@@ -957,7 +998,7 @@ function filterContentArray(contentArray, sessionId, getCachedSignatureFn, isCla
             if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
                 const sanitized = sanitizeThinkingPart(item);
                 if (sanitized)
-                    filtered.push(sanitized);
+                    filtered.push(asJsonRecord(sanitized));
                 continue;
             }
             // Not our signature (or no signature) - inject sentinel
@@ -976,7 +1017,7 @@ function filterContentArray(contentArray, sessionId, getCachedSignatureFn, isCla
         if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
             const sanitized = sanitizeThinkingPart(item);
             if (sanitized)
-                filtered.push(sanitized);
+                filtered.push(asJsonRecord(sanitized));
             continue;
         }
         if (sessionId && getCachedSignatureFn) {
@@ -993,7 +1034,7 @@ function filterContentArray(contentArray, sessionId, getCachedSignatureFn, isCla
                     }
                     const sanitized = sanitizeThinkingPart(restoredPart);
                     if (sanitized)
-                        filtered.push(sanitized);
+                        filtered.push(asJsonRecord(sanitized));
                     continue;
                 }
             }
@@ -1016,18 +1057,20 @@ export function filterUnsignedThinkingBlocks(contents, sessionId, getCachedSigna
             return content;
         }
         const isLastAssistant = idx === lastAssistantIdx;
-        if (Array.isArray(content.parts)) {
-            const filteredParts = filterContentArray(content.parts, sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistant);
+        const contentParts = content.parts;
+        if (Array.isArray(contentParts)) {
+            const filteredParts = filterContentArray(asJsonRecords(contentParts), sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistant);
             const trimmedParts = content.role === "model" && !isClaudeModel
                 ? removeTrailingThinkingBlocks(filteredParts, sessionId, getCachedSignatureFn)
                 : filteredParts;
             return { ...content, parts: trimmedParts };
         }
-        if (Array.isArray(content.content)) {
+        const contentBlocks = content.content;
+        if (Array.isArray(contentBlocks)) {
             const isAssistantRole = content.role === "assistant";
             const isLastAssistantContent = idx === lastAssistantIdx ||
                 (isAssistantRole && idx === findLastAssistantIndex(contents, "assistant"));
-            const filteredContent = filterContentArray(content.content, sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistantContent);
+            const filteredContent = filterContentArray(asJsonRecords(contentBlocks), sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistantContent);
             const trimmedContent = isAssistantRole && !isClaudeModel
                 ? removeTrailingThinkingBlocks(filteredContent, sessionId, getCachedSignatureFn)
                 : filteredContent;
@@ -1045,10 +1088,11 @@ export function filterMessagesThinkingBlocks(messages, sessionId, getCachedSigna
         if (!message || typeof message !== "object") {
             return message;
         }
-        if (Array.isArray(message.content)) {
+        const messageContent = message.content;
+        if (Array.isArray(messageContent)) {
             const isAssistantRole = message.role === "assistant";
             const isLastAssistant = isAssistantRole && idx === lastAssistantIdx;
-            const filteredContent = filterContentArray(message.content, sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistant);
+            const filteredContent = filterContentArray(asJsonRecords(messageContent), sessionId, getCachedSignatureFn, isClaudeModel, isLastAssistant);
             const trimmedContent = isAssistantRole && !isClaudeModel
                 ? removeTrailingThinkingBlocks(filteredContent, sessionId, getCachedSignatureFn)
                 : filteredContent;
@@ -1092,24 +1136,28 @@ function transformGeminiCandidate(candidate) {
     if (!candidate || typeof candidate !== "object") {
         return candidate;
     }
-    const content = candidate.content;
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
+    const content = asJsonRecord(candidate).content;
+    if (!content || typeof content !== "object" || !Array.isArray(asJsonRecord(content).parts)) {
         return candidate;
     }
+    const contentRecord = asJsonRecord(content);
+    const contentParts = asJsonRecords(contentRecord.parts);
     const thinkingTexts = [];
-    const transformedParts = content.parts.map((part) => {
+    const preservedImages = [];
+    const transformedParts = contentParts.map((part) => {
         if (!part || typeof part !== "object") {
             return part;
         }
+        const partRecord = asJsonRecord(part);
         // Handle Gemini-style: thought: true
-        if (part.thought === true) {
-            const thinkingText = part.text || "";
-            thinkingTexts.push(thinkingText);
-            const transformed = { ...part, type: "reasoning" };
-            if (part.cache_control)
-                transformed.cache_control = part.cache_control;
+        if (partRecord.thought === true) {
+            const thinkingText = partRecord.text || "";
+            thinkingTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
+            const transformed = { ...partRecord, type: "reasoning" };
+            if (partRecord.cache_control)
+                transformed.cache_control = partRecord.cache_control;
             // Convert signature to providerMetadata format for OpenCode
-            const sig = part.signature || part.thoughtSignature;
+            const sig = partRecord.signature || partRecord.thoughtSignature;
             if (sig) {
                 transformed.providerMetadata = {
                     anthropic: { signature: sig }
@@ -1120,19 +1168,19 @@ function transformGeminiCandidate(candidate) {
             return transformed;
         }
         // Handle Anthropic-style in candidates: type: "thinking"
-        if (part.type === "thinking") {
-            const thinkingText = part.thinking || part.text || "";
-            thinkingTexts.push(thinkingText);
+        if (partRecord.type === "thinking") {
+            const thinkingText = partRecord.thinking || partRecord.text || "";
+            thinkingTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
             const transformed = {
-                ...part,
+                ...partRecord,
                 type: "reasoning",
                 text: thinkingText,
                 thought: true,
             };
-            if (part.cache_control)
-                transformed.cache_control = part.cache_control;
+            if (partRecord.cache_control)
+                transformed.cache_control = partRecord.cache_control;
             // Convert signature to providerMetadata format for OpenCode
-            const sig = part.signature || part.thoughtSignature;
+            const sig = partRecord.signature || partRecord.thoughtSignature;
             if (sig) {
                 transformed.providerMetadata = {
                     anthropic: { signature: sig }
@@ -1146,34 +1194,43 @@ function transformGeminiCandidate(candidate) {
         // (Ported from LLM-API-Key-Proxy's _extract_tool_call)
         // Fix: When Claude calls a tool with no parameters, args may be undefined.
         // opencode expects state.input to be a record, so we must ensure args: {} as fallback.
-        if (part.functionCall) {
-            const parsedArgs = part.functionCall.args
-                ? recursivelyParseJsonStrings(part.functionCall.args)
+        if (partRecord.functionCall) {
+            const functionCall = asJsonRecord(partRecord.functionCall);
+            const parsedArgs = functionCall.args
+                ? recursivelyParseJsonStrings(functionCall.args)
                 : {};
             return {
-                ...part,
+                ...partRecord,
                 functionCall: {
-                    ...part.functionCall,
+                    ...functionCall,
                     args: parsedArgs,
                 },
             };
         }
-        // Handle image data (inlineData) - save to disk and return file path
-        if (part.inlineData) {
+        // Handle image data (inlineData) - save to disk and return file path.
+        // Keep the original bytes for the bridge, which reads this candidate after replacement.
+        if (partRecord.inlineData) {
+            const inlineData = asJsonRecord(partRecord.inlineData);
+            const mimeType = inlineData.mimeType;
+            const data = inlineData.data;
+            if (typeof mimeType === "string" && mimeType.startsWith("image/") && typeof data === "string" && data) {
+                preservedImages.push({ mimeType, data });
+            }
             const result = processImageData({
-                mimeType: part.inlineData.mimeType,
-                data: part.inlineData.data,
+                mimeType: mimeType,
+                data: data,
             });
             if (result) {
-                return { text: result };
+                return { text: result, antigravityImageReplaced: true };
             }
         }
         return part;
     });
     return {
-        ...candidate,
-        content: { ...content, parts: transformedParts },
+        ...asJsonRecord(candidate),
+        content: { ...contentRecord, parts: transformedParts },
         ...(thinkingTexts.length > 0 ? { reasoning_content: thinkingTexts.join("\n\n") } : {}),
+        ...(preservedImages.length > 0 ? { preservedImages } : {}),
     };
 }
 /**
@@ -1193,8 +1250,9 @@ export function transformThinkingParts(response) {
         const transformedContent = [];
         for (const block of resp.content) {
             if (block && typeof block === "object" && block.type === "thinking") {
-                const thinkingText = block.thinking || block.text || "";
-                reasoningTexts.push(thinkingText);
+                const blockRecord = asJsonRecord(block);
+                const thinkingText = blockRecord.thinking || blockRecord.text || "";
+                reasoningTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
                 const transformed = {
                     ...block,
                     type: "reasoning",
@@ -1210,10 +1268,10 @@ export function transformThinkingParts(response) {
                     delete transformed.signature;
                     delete transformed.thoughtSignature;
                 }
-                transformedContent.push(transformed);
+                transformedContent.push(asJsonRecord(transformed));
             }
             else {
-                transformedContent.push(block);
+                transformedContent.push(asJsonRecord(block));
             }
         }
         result.content = transformedContent;
@@ -1453,7 +1511,7 @@ export function isEmptyResponseBody(text) {
 }
 export function createStreamingChunkCounter() {
     let count = 0;
-    let hasRealContent = false;
+    const hasRealContent = false;
     return {
         increment: () => {
             count++;
@@ -1666,13 +1724,13 @@ export function fixToolResponseGrouping(contents) {
     const collectedResponses = new Map();
     for (const content of contents) {
         const role = content.role;
-        const parts = content.parts || [];
+        const parts = asJsonRecords((content.parts || [])).filter((part) => part != null);
         // Check if this is a tool response message
-        const responseParts = parts.filter((p) => p?.functionResponse);
+        const responseParts = parts.filter((part) => Boolean(part.functionResponse));
         if (responseParts.length > 0) {
             // Collect responses by ID (skip duplicates)
             for (const resp of responseParts) {
-                const respId = resp.functionResponse?.id || "";
+                const respId = (nestedRecord(resp.functionResponse)?.id || "");
                 if (respId && !collectedResponses.has(respId)) {
                     collectedResponses.set(respId, resp);
                 }
@@ -1680,6 +1738,9 @@ export function fixToolResponseGrouping(contents) {
             // Try to satisfy the most recent pending group
             for (let i = pendingGroups.length - 1; i >= 0; i--) {
                 const group = pendingGroups[i];
+                if (!group) {
+                    continue;
+                }
                 if (group.ids.every(id => collectedResponses.has(id))) {
                     // All IDs found - build the response group
                     const groupResponses = group.ids.map(id => {
@@ -1696,14 +1757,14 @@ export function fixToolResponseGrouping(contents) {
         }
         if (role === "model") {
             // Check for function calls in this model message
-            const funcCalls = parts.filter((p) => p?.functionCall);
+            const funcCalls = parts.filter((part) => part != null && Boolean(part.functionCall));
             newContents.push(content);
             if (funcCalls.length > 0) {
                 const callIds = funcCalls
-                    .map((fc) => fc.functionCall?.id || "")
+                    .map((fc) => nestedRecord(fc.functionCall)?.id || "")
                     .filter(Boolean);
                 const funcNames = funcCalls
-                    .map((fc) => fc.functionCall?.name || "");
+                    .map((fc) => nestedRecord(fc.functionCall)?.name || "");
                 if (callIds.length > 0) {
                     pendingGroups.push({
                         ids: callIds,
@@ -1724,10 +1785,15 @@ export function fixToolResponseGrouping(contents) {
         const groupResponses = [];
         for (let i = 0; i < group.ids.length; i++) {
             const expectedId = group.ids[i];
+            if (expectedId === undefined) {
+                continue;
+            }
             const expectedName = group.funcNames[i] || "";
             if (collectedResponses.has(expectedId)) {
                 // Direct ID match - ideal case
-                groupResponses.push(collectedResponses.get(expectedId));
+                const matched = collectedResponses.get(expectedId);
+                if (matched)
+                    groupResponses.push(matched);
                 collectedResponses.delete(expectedId);
             }
             else if (collectedResponses.size > 0) {
@@ -1735,7 +1801,7 @@ export function fixToolResponseGrouping(contents) {
                 let matchedId = null;
                 // Pass 1: Match by function name
                 for (const [orphanId, orphanResp] of collectedResponses) {
-                    const orphanName = orphanResp.functionResponse?.name || "";
+                    const orphanName = nestedRecord(orphanResp.functionResponse)?.name || "";
                     if (orphanName === expectedName) {
                         matchedId = orphanId;
                         break;
@@ -1744,7 +1810,7 @@ export function fixToolResponseGrouping(contents) {
                 // Pass 2: Match "unknown_function" orphans
                 if (!matchedId) {
                     for (const [orphanId, orphanResp] of collectedResponses) {
-                        if (orphanResp.functionResponse?.name === "unknown_function") {
+                        if (nestedRecord(orphanResp.functionResponse)?.name === "unknown_function") {
                             matchedId = orphanId;
                             break;
                         }
@@ -1756,11 +1822,18 @@ export function fixToolResponseGrouping(contents) {
                 }
                 if (matchedId) {
                     const orphanResp = collectedResponses.get(matchedId);
+                    if (orphanResp === undefined) {
+                        throw new Error("Missing collected tool response");
+                    }
                     collectedResponses.delete(matchedId);
                     // Fix the ID and name to match expected
-                    orphanResp.functionResponse.id = expectedId;
-                    if (orphanResp.functionResponse.name === "unknown_function" && expectedName) {
-                        orphanResp.functionResponse.name = expectedName;
+                    const repaired = nestedRecord(orphanResp.functionResponse);
+                    if (!repaired) {
+                        throw new Error("Missing collected tool response");
+                    }
+                    repaired.id = expectedId;
+                    if (repaired.name === "unknown_function" && expectedName) {
+                        repaired.name = expectedName;
                     }
                     log.debug("Auto-repaired tool ID mismatch", {
                         mappedFrom: matchedId,
@@ -1812,13 +1885,15 @@ export function detectToolIdMismatches(contents) {
     const expectedIds = [];
     const foundIds = [];
     for (const content of contents) {
-        const parts = content.parts || [];
+        const parts = asJsonRecords((content.parts || []));
         for (const part of parts) {
-            if (part?.functionCall?.id) {
-                expectedIds.push(part.functionCall.id);
+            const callId = nestedRecord(part.functionCall)?.id;
+            if (callId) {
+                expectedIds.push(callId);
             }
-            if (part?.functionResponse?.id) {
-                foundIds.push(part.functionResponse.id);
+            const responseId = nestedRecord(part.functionResponse)?.id;
+            if (responseId) {
+                foundIds.push(responseId);
             }
         }
     }
@@ -1846,7 +1921,8 @@ export function findOrphanedToolUseIds(messages) {
     const toolResultIds = new Set();
     for (const msg of messages) {
         if (Array.isArray(msg.content)) {
-            for (const block of msg.content) {
+            for (const blockValue of msg.content) {
+                const block = blockValue;
                 if (block.type === "tool_use" && block.id) {
                     toolUseIds.add(block.id);
                 }
@@ -1878,9 +1954,11 @@ export function fixClaudeToolPairing(messages) {
     for (let i = 0; i < messages.length; i++) {
         const msg = messages[i];
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
-            for (const block of msg.content) {
+            for (const blockValue of msg.content) {
+                const block = blockValue;
                 if (block.type === "tool_use" && block.id) {
-                    toolUseMap.set(block.id, { name: block.name || `tool-${toolUseMap.size}`, msgIndex: i });
+                    const name = typeof block.name === "string" && block.name ? block.name : `tool-${toolUseMap.size}`;
+                    toolUseMap.set(block.id, { name, msgIndex: i });
                 }
             }
         }
@@ -1889,7 +1967,8 @@ export function fixClaudeToolPairing(messages) {
     const toolResultIds = new Set();
     for (const msg of messages) {
         if (msg.role === "user" && Array.isArray(msg.content)) {
-            for (const block of msg.content) {
+            for (const blockValue of msg.content) {
+                const block = blockValue;
                 if (block.type === "tool_result" && block.tool_use_id) {
                     toolResultIds.add(block.tool_use_id);
                 }
@@ -1916,7 +1995,9 @@ export function fixClaudeToolPairing(messages) {
     // 5. Build new messages array with injected tool_results
     const result = [];
     for (let i = 0; i < messages.length; i++) {
-        result.push(messages[i]);
+        const current = messages[i];
+        if (current)
+            result.push(current);
         const orphansForMsg = orphansByMsgIndex.get(i);
         if (orphansForMsg && orphansForMsg.length > 0) {
             // Check if next message is user with tool_result - if so, merge into it
@@ -1958,7 +2039,7 @@ function removeOrphanedToolUse(messages, orphanIds) {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
             return {
                 ...msg,
-                content: msg.content.filter((block) => block.type !== "tool_use" || !orphanIds.has(block.id)),
+                content: asJsonRecords(msg.content).filter((block) => block.type !== "tool_use" || !orphanIds.has(block.id)),
             };
         }
         return msg;
@@ -1976,7 +2057,10 @@ export function validateAndFixClaudeToolPairing(messages) {
         return messages;
     }
     // First: Try gentle fix (inject placeholder tool_results)
-    let fixed = fixClaudeToolPairing(messages);
+    const fixed = fixClaudeToolPairing(messages);
+    if (!fixed) {
+        return fixed;
+    }
     // Second: Validate - find any remaining orphans
     const orphanIds = findOrphanedToolUseIds(fixed);
     if (orphanIds.size === 0) {
@@ -2064,16 +2148,17 @@ export function injectParameterSignatures(tools, promptTemplate = "\n\n⚠️ ST
         const declarations = tool.functionDeclarations;
         if (!Array.isArray(declarations))
             return tool;
-        const newDeclarations = declarations.map((decl) => {
+        const newDeclarations = asJsonRecords(declarations).map((decl) => {
+            const description = typeof decl.description === "string" ? decl.description : "";
             // Skip if signature already injected (avoids duplicate injection)
-            if (decl.description?.includes("STRICT PARAMETERS:")) {
+            if (description.includes("STRICT PARAMETERS:")) {
                 return decl;
             }
-            const schema = decl.parameters || decl.parametersJsonSchema;
+            const schema = nestedRecord(decl.parameters || decl.parametersJsonSchema);
             if (!schema)
                 return decl;
-            const required = schema.required ?? [];
-            const properties = schema.properties ?? {};
+            const required = Array.isArray(schema.required) ? schema.required.filter((item) => typeof item === "string") : [];
+            const properties = (schema.properties && typeof schema.properties === "object" ? schema.properties : {});
             if (Object.keys(properties).length === 0)
                 return decl;
             const paramList = Object.entries(properties).map(([propName, propData]) => {
@@ -2084,7 +2169,7 @@ export function injectParameterSignatures(tools, promptTemplate = "\n\n⚠️ ST
             const sigStr = promptTemplate.replace("{params}", paramList.join(", "));
             return {
                 ...decl,
-                description: (decl.description || "") + sigStr,
+                description: description + sigStr,
             };
         });
         return { ...tool, functionDeclarations: newDeclarations };
@@ -2154,12 +2239,14 @@ export function assignToolIdsToContents(contents) {
     let toolCallCounter = 0;
     const pendingCallIdsByName = new Map();
     const newContents = contents.map((content) => {
-        if (!content || !Array.isArray(content.parts)) {
+        const contentRecord = asJsonRecord(content);
+        if (!content || !Array.isArray(contentRecord.parts)) {
             return content;
         }
-        const newParts = content.parts.map((part) => {
-            if (part && typeof part === "object" && part.functionCall) {
-                const call = { ...part.functionCall };
+        const newParts = asJsonRecords(contentRecord.parts).map((part) => {
+            const callRecord = nestedRecord(part.functionCall);
+            if (part && typeof part === "object" && callRecord) {
+                const call = { ...callRecord };
                 if (!call.id) {
                     call.id = `tool-call-${++toolCallCounter}`;
                 }
@@ -2188,12 +2275,14 @@ export function matchResponseIdsToContents(contents, pendingCallIdsByName) {
         return contents;
     }
     return contents.map((content) => {
-        if (!content || !Array.isArray(content.parts)) {
+        const contentRecord = asJsonRecord(content);
+        if (!content || !Array.isArray(contentRecord.parts)) {
             return content;
         }
-        const newParts = content.parts.map((part) => {
-            if (part && typeof part === "object" && part.functionResponse) {
-                const resp = { ...part.functionResponse };
+        const newParts = asJsonRecords(contentRecord.parts).map((part) => {
+            const responseRecord = nestedRecord(part.functionResponse);
+            if (part && typeof part === "object" && responseRecord) {
+                const resp = { ...responseRecord };
                 if (!resp.id && typeof resp.name === "string") {
                     const queue = pendingCallIdsByName.get(resp.name);
                     if (queue && queue.length > 0) {

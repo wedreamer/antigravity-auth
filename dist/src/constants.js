@@ -90,9 +90,18 @@ const ANTIGRAVITY_API_CLIENTS = [
     "google-cloud-sdk vscode/1.95.0",
 ];
 function randomFrom(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
+    if (arr.length === 0) {
+        throw new Error("randomFrom called with an empty array");
+    }
+    const item = arr[Math.floor(Math.random() * arr.length)];
+    if (item === undefined) {
+        throw new Error("randomFrom produced undefined");
+    }
+    return item;
 }
 export function getRandomizedHeaders(style = "antigravity", model) {
+    void style;
+    void model;
     const platform = randomFrom(ANTIGRAVITY_PLATFORMS);
     const metadataPlatform = platform.startsWith("windows") ? "WINDOWS" : "MACOS";
     return {

@@ -31,6 +31,14 @@ export interface ConversationState {
   lastModelHasToolCalls: boolean;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function unknownList(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 // ============================================================================
 // DETECTION HELPERS
 // ============================================================================
@@ -38,8 +46,8 @@ export interface ConversationState {
 /**
  * Checks if a message part is a thinking/reasoning block.
  */
-function isThinkingPart(part: any): boolean {
-  if (!part || typeof part !== "object") return false;
+function isThinkingPart(part: unknown): boolean {
+  if (!isRecord(part)) return false;
   return (
     part.thought === true ||
     part.type === "thinking" ||
@@ -50,31 +58,30 @@ function isThinkingPart(part: any): boolean {
 /**
  * Checks if a message part is a function response (tool result).
  */
-function isFunctionResponsePart(part: any): boolean {
-  return part && typeof part === "object" && "functionResponse" in part;
+function isFunctionResponsePart(part: unknown): boolean {
+  return isRecord(part) && "functionResponse" in part;
 }
 
 /**
  * Checks if a message part is a function call.
  */
-function isFunctionCallPart(part: any): boolean {
-  return part && typeof part === "object" && "functionCall" in part;
+function isFunctionCallPart(part: unknown): boolean {
+  return isRecord(part) && "functionCall" in part;
 }
 
 /**
  * Checks if a message is a tool result container (user role with functionResponse).
  */
-function isToolResultMessage(msg: any): boolean {
-  if (!msg || msg.role !== "user") return false;
-  const parts = msg.parts || [];
-  return parts.some(isFunctionResponsePart);
+function isToolResultMessage(msg: unknown): boolean {
+  if (!isRecord(msg) || msg.role !== "user") return false;
+  return unknownList(msg.parts).some(isFunctionResponsePart);
 }
 
 /**
  * Checks if a message contains thinking/reasoning content.
  */
-function messageHasThinking(msg: any): boolean {
-  if (!msg || typeof msg !== "object") return false;
+function messageHasThinking(msg: unknown): boolean {
+  if (!isRecord(msg)) return false;
 
   // Gemini format: parts array
   if (Array.isArray(msg.parts)) {
@@ -84,8 +91,9 @@ function messageHasThinking(msg: any): boolean {
   // Anthropic format: content array
   if (Array.isArray(msg.content)) {
     return msg.content.some(
-      (block: any) =>
-        block?.type === "thinking" || block?.type === "redacted_thinking",
+      (block) =>
+        isRecord(block) &&
+        (block.type === "thinking" || block.type === "redacted_thinking"),
     );
   }
 
@@ -95,8 +103,8 @@ function messageHasThinking(msg: any): boolean {
 /**
  * Checks if a message contains tool calls.
  */
-function messageHasToolCalls(msg: any): boolean {
-  if (!msg || typeof msg !== "object") return false;
+function messageHasToolCalls(msg: unknown): boolean {
+  if (!isRecord(msg)) return false;
 
   // Gemini format: parts array with functionCall
   if (Array.isArray(msg.parts)) {
@@ -105,7 +113,9 @@ function messageHasToolCalls(msg: any): boolean {
 
   // Anthropic format: content array with tool_use
   if (Array.isArray(msg.content)) {
-    return msg.content.some((block: any) => block?.type === "tool_use");
+    return msg.content.some(
+      (block) => isRecord(block) && block.type === "tool_use",
+    );
   }
 
   return false;
@@ -122,7 +132,7 @@ function messageHasToolCalls(msg: any): boolean {
  * We need to find the TURN START (first assistant message after last real user message)
  * and check if THAT message had thinking, not just the last assistant message.
  */
-export function analyzeConversationState(contents: any[]): ConversationState {
+export function analyzeConversationState(contents: unknown): ConversationState {
   const state: ConversationState = {
     inToolLoop: false,
     turnStartIdx: -1,
@@ -140,7 +150,7 @@ export function analyzeConversationState(contents: any[]): ConversationState {
   let lastRealUserIdx = -1;
   for (let i = 0; i < contents.length; i++) {
     const msg = contents[i];
-    if (msg?.role === "user" && !isToolResultMessage(msg)) {
+    if (isRecord(msg) && msg.role === "user" && !isToolResultMessage(msg)) {
       lastRealUserIdx = i;
     }
   }
@@ -148,7 +158,7 @@ export function analyzeConversationState(contents: any[]): ConversationState {
   // Second pass: Analyze conversation and find turn boundaries
   for (let i = 0; i < contents.length; i++) {
     const msg = contents[i];
-    const role = msg?.role;
+    const role = isRecord(msg) ? msg.role : undefined;
 
     if (role === "model" || role === "assistant") {
       const hasThinking = messageHasThinking(msg);
@@ -170,7 +180,7 @@ export function analyzeConversationState(contents: any[]): ConversationState {
   // We're in a tool loop if the conversation ends with a tool result
   if (contents.length > 0) {
     const lastMsg = contents[contents.length - 1];
-    if (lastMsg?.role === "user" && isToolResultMessage(lastMsg)) {
+    if (isRecord(lastMsg) && lastMsg.role === "user" && isToolResultMessage(lastMsg)) {
       state.inToolLoop = true;
     }
   }
@@ -186,14 +196,14 @@ export function analyzeConversationState(contents: any[]): ConversationState {
  * Strips all thinking blocks from messages.
  * Used before injecting synthetic messages to avoid invalid thinking patterns.
  */
-function stripAllThinkingBlocks(contents: any[]): any[] {
+function stripAllThinkingBlocks(contents: unknown[]): unknown[] {
   return contents.map((content) => {
-    if (!content || typeof content !== "object") return content;
+    if (!isRecord(content)) return content;
 
     // Handle Gemini-style parts
     if (Array.isArray(content.parts)) {
       const filteredParts = content.parts.filter(
-        (part: any) => !isThinkingPart(part),
+        (part) => !isThinkingPart(part),
       );
       // Keep at least one part to avoid empty messages
       if (filteredParts.length === 0 && content.parts.length > 0) {
@@ -205,8 +215,9 @@ function stripAllThinkingBlocks(contents: any[]): any[] {
     // Handle Anthropic-style content
     if (Array.isArray(content.content)) {
       const filteredContent = content.content.filter(
-        (block: any) =>
-          block?.type !== "thinking" && block?.type !== "redacted_thinking",
+        (block) =>
+          !isRecord(block) ||
+          (block.type !== "thinking" && block.type !== "redacted_thinking"),
       );
       if (filteredContent.length === 0 && content.content.length > 0) {
         return content;
@@ -221,22 +232,23 @@ function stripAllThinkingBlocks(contents: any[]): any[] {
 /**
  * Counts tool results at the end of the conversation.
  */
-function countTrailingToolResults(contents: any[]): number {
+function countTrailingToolResults(contents: unknown[]): number {
   let count = 0;
 
   for (let i = contents.length - 1; i >= 0; i--) {
     const msg = contents[i];
 
-    if (msg?.role === "user") {
-      const parts = msg.parts || [];
-      const functionResponses = parts.filter(isFunctionResponsePart);
+    if (isRecord(msg) && msg.role === "user") {
+      const functionResponses = unknownList(msg.parts).filter(
+        isFunctionResponsePart,
+      );
 
       if (functionResponses.length > 0) {
         count += functionResponses.length;
       } else {
         break; // Real user message, stop counting
       }
-    } else if (msg?.role === "model" || msg?.role === "assistant") {
+    } else if (isRecord(msg) && (msg.role === "model" || msg.role === "assistant")) {
       break; // Stop at the model that made the tool calls
     }
   }
@@ -261,7 +273,7 @@ function countTrailingToolResults(contents: any[]): number {
  *
  * This allows Claude to generate fresh thinking for the new turn.
  */
-export function closeToolLoopForThinking(contents: any[]): any[] {
+export function closeToolLoopForThinking(contents: unknown[]): unknown[] {
   // Strip any old/corrupted thinking first
   const strippedContents = stripAllThinkingBlocks(contents);
 
@@ -312,50 +324,49 @@ export function needsThinkingRecovery(state: ConversationState): boolean {
 
 /**
  * Detects if a message looks like it was compacted from a thinking-enabled turn.
- * 
+ *
  * This is a heuristic to distinguish between:
  * - "Never had thinking" (model didn't use thinking mode)
  * - "Thinking was stripped" (context compaction removed thinking blocks)
- * 
+ *
  * Port of LLM-API-Key-Proxy's _looks_like_compacted_thinking_turn()
- * 
+ *
  * Heuristics:
  * 1. Has functionCall parts (typical thinking flow produces tool calls)
  * 2. No thinking parts (thought: true)
  * 3. No text content before functionCall (thinking responses usually have text)
- * 
+ *
  * @param msg - A single message from the conversation
  * @returns true if the message looks like thinking was stripped
  */
-export function looksLikeCompactedThinkingTurn(msg: any): boolean {
-  if (!msg || typeof msg !== "object") return false;
+export function looksLikeCompactedThinkingTurn(msg: unknown): boolean {
+  if (!isRecord(msg)) return false;
 
-  const parts = msg.parts || [];
+  const parts = unknownList(msg.parts);
   if (parts.length === 0) return false;
 
   // Check if message has function calls
   const hasFunctionCall = parts.some(
-    (p: any) => p && typeof p === "object" && p.functionCall,
+    (p) => isRecord(p) && Boolean(p.functionCall),
   );
 
   if (!hasFunctionCall) return false;
 
   // Check for thinking blocks
   const hasThinking = parts.some(
-    (p: any) =>
-      p &&
-      typeof p === "object" &&
+    (p) =>
+      isRecord(p) &&
       (p.thought === true || p.type === "thinking" || p.type === "redacted_thinking"),
   );
 
   if (hasThinking) return false;
 
   // Check for text content (not thinking)
-  const hasTextBeforeFunctionCall = parts.some((p: any, idx: number) => {
-    if (!p || typeof p !== "object") return false;
+  const hasTextBeforeFunctionCall = parts.some((p, idx) => {
+    if (!isRecord(p)) return false;
     // Only check parts before the first functionCall
     const firstFuncIdx = parts.findIndex(
-      (fp: any) => fp && typeof fp === "object" && fp.functionCall,
+      (fp) => isRecord(fp) && Boolean(fp.functionCall),
     );
     if (idx >= firstFuncIdx) return false;
     // Check for non-thinking text
@@ -373,20 +384,20 @@ export function looksLikeCompactedThinkingTurn(msg: any): boolean {
 
 /**
  * Checks if any message in the current turn looks like it was compacted.
- * 
+ *
  * @param contents - Full conversation contents
  * @param turnStartIdx - Index of the first model message in current turn
  * @returns true if any model message in the turn looks compacted
  */
 export function hasPossibleCompactedThinking(
-  contents: any[],
+  contents: unknown,
   turnStartIdx: number,
 ): boolean {
   if (!Array.isArray(contents) || turnStartIdx < 0) return false;
 
   for (let i = turnStartIdx; i < contents.length; i++) {
     const msg = contents[i];
-    if (msg?.role === "model" && looksLikeCompactedThinkingTurn(msg)) {
+    if (isRecord(msg) && msg.role === "model" && looksLikeCompactedThinkingTurn(msg)) {
       return true;
     }
   }

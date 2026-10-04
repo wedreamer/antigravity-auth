@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs"
 import { dirname } from "node:path"
 
-import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET, ANTIGRAVITY_DEFAULT_PROJECT_ID } from "../constants.ts"
-import { AccountManager, type ManagedAccount } from "../plugin/accounts.ts"
-import { clearStickyBinding, createStickyState, pickStickyAccount } from "./affinity.ts"
-import type { AccountPool, PoolAccount } from "./types.ts"
+import { ANTIGRAVITY_CLIENT_ID, ANTIGRAVITY_CLIENT_SECRET, ANTIGRAVITY_DEFAULT_PROJECT_ID } from "../constants"
+import { AccountManager, type ManagedAccount } from "../plugin/accounts"
+import { clearStickyBinding, createStickyState, pickStickyAccount } from "./affinity"
+import type { AccountPool, PoolAccount } from "./types"
 
 const REFRESH_SKEW_MS = 60_000
 

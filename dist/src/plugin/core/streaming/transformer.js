@@ -84,7 +84,9 @@ export function transformStreamingPayload(payload, transformThinkingParts) {
                 return `data: ${JSON.stringify(transformed)}`;
             }
         }
-        catch (_) { }
+        catch (error) {
+            void error;
+        }
         return line;
     })
         .join('\n');
@@ -222,7 +224,9 @@ export function transformSseLine(line, signatureStore, thoughtBuffer, sentThinki
             return `data: ${JSON.stringify(transformed)}`;
         }
     }
-    catch (_) { }
+    catch (error) {
+        void error;
+    }
     return line;
 }
 export function cacheThinkingSignaturesFromResponse(response, signatureSessionKey, signatureStore, thoughtBuffer, onCacheSignature) {

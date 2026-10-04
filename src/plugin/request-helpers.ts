@@ -1,6 +1,5 @@
 import { getKeepThinking } from "./config";
 import { createLogger } from "./logger";
-import { cacheSignature } from "./cache";
 import {
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
   EMPTY_SCHEMA_PLACEHOLDER_DESCRIPTION,
@@ -10,6 +9,35 @@ import { processImageData } from "./image-saver";
 import type { GoogleSearchConfig } from "./transform/types";
 
 const log = createLogger("request-helpers");
+
+interface JsonRecord {
+  [key: string]: JsonValue;
+}
+
+type JsonValue =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | JsonValue[]
+  | JsonRecord;
+
+function asJsonRecord(value: unknown): JsonRecord {
+  return value as JsonRecord;
+}
+
+function nestedRecord(value: JsonValue): JsonRecord | undefined {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+  return value as JsonRecord;
+}
+
+function asJsonRecords(value: JsonValue): JsonRecord[] {
+  return value as JsonRecord[];
+}
+
 
 const ANTIGRAVITY_PREVIEW_LINK = "https://goo.gle/enable-preview-features"; // TODO: Update to Antigravity link if available
 
@@ -40,10 +68,7 @@ const UNSUPPORTED_KEYWORDS = [
 /**
  * Appends a hint to a schema's description field.
  */
-function appendDescriptionHint(schema: any, hint: string): any {
-  if (!schema || typeof schema !== "object") {
-    return schema;
-  }
+function appendDescriptionHint(schema: JsonRecord, hint: string): JsonRecord {
   const existing = typeof schema.description === "string" ? schema.description : "";
   const newDescription = existing ? `${existing} (${hint})` : hint;
   return { ...schema, description: newDescription };
@@ -53,7 +78,7 @@ function appendDescriptionHint(schema: any, hint: string): any {
  * Phase 1a: Converts $ref to description hints.
  * $ref: "#/$defs/Foo" → { type: "object", description: "See: Foo" }
  */
-function convertRefsToHints(schema: any): any {
+function convertRefsToHints(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -73,7 +98,7 @@ function convertRefsToHints(schema: any): any {
   }
 
   // Recursively process all properties
-  const result: any = {};
+  const result: JsonRecord = {};
   for (const [key, value] of Object.entries(schema)) {
     result[key] = convertRefsToHints(value);
   }
@@ -84,7 +109,7 @@ function convertRefsToHints(schema: any): any {
  * Phase 1b: Converts const to enum.
  * { const: "foo" } → { enum: ["foo"] }
  */
-function convertConstToEnum(schema: any): any {
+function convertConstToEnum(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -93,7 +118,7 @@ function convertConstToEnum(schema: any): any {
     return schema.map(item => convertConstToEnum(item));
   }
 
-  const result: any = {};
+  const result: JsonRecord = {};
   for (const [key, value] of Object.entries(schema)) {
     if (key === "const" && !schema.enum) {
       result.enum = [value];
@@ -108,7 +133,7 @@ function convertConstToEnum(schema: any): any {
  * Phase 1c: Adds enum hints to description.
  * { enum: ["a", "b", "c"] } → adds "(Allowed: a, b, c)" to description
  */
-function addEnumHints(schema: any): any {
+function addEnumHints(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -117,11 +142,11 @@ function addEnumHints(schema: any): any {
     return schema.map(item => addEnumHints(item));
   }
 
-  let result: any = { ...schema };
+  let result: JsonRecord = { ...schema };
 
   // Add enum hint if enum has 2-10 items
   if (Array.isArray(result.enum) && result.enum.length > 1 && result.enum.length <= 10) {
-    const vals = result.enum.map((v: any) => String(v)).join(", ");
+    const vals = result.enum.map((v: JsonValue) => String(v)).join(", ");
     result = appendDescriptionHint(result, `Allowed: ${vals}`);
   }
 
@@ -139,7 +164,7 @@ function addEnumHints(schema: any): any {
  * Phase 1d: Adds additionalProperties hints.
  * { additionalProperties: false } → adds "(No extra properties allowed)" to description
  */
-function addAdditionalPropertiesHints(schema: any): any {
+function addAdditionalPropertiesHints(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -148,7 +173,7 @@ function addAdditionalPropertiesHints(schema: any): any {
     return schema.map(item => addAdditionalPropertiesHints(item));
   }
 
-  let result: any = { ...schema };
+  let result: JsonRecord = { ...schema };
 
   if (result.additionalProperties === false) {
     result = appendDescriptionHint(result, "No extra properties allowed");
@@ -168,7 +193,7 @@ function addAdditionalPropertiesHints(schema: any): any {
  * Phase 1e: Moves unsupported constraints to description hints.
  * { minLength: 1, maxLength: 100 } → adds "(minLength: 1) (maxLength: 100)" to description
  */
-function moveConstraintsToDescription(schema: any): any {
+function moveConstraintsToDescription(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -177,7 +202,7 @@ function moveConstraintsToDescription(schema: any): any {
     return schema.map(item => moveConstraintsToDescription(item));
   }
 
-  let result: any = { ...schema };
+  let result: JsonRecord = { ...schema };
 
   // Move constraint values to description
   for (const constraint of UNSUPPORTED_CONSTRAINTS) {
@@ -201,7 +226,7 @@ function moveConstraintsToDescription(schema: any): any {
  * { allOf: [{ properties: { a: ... } }, { properties: { b: ... } }] }
  * → { properties: { a: ..., b: ... } }
  */
-function mergeAllOf(schema: any): any {
+function mergeAllOf(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -210,32 +235,39 @@ function mergeAllOf(schema: any): any {
     return schema.map(item => mergeAllOf(item));
   }
 
-  let result: any = { ...schema };
+  const result: JsonRecord = { ...schema };
 
   // If this object has allOf, merge its contents
-  if (Array.isArray(result.allOf)) {
-    const merged: any = {};
+  const allOf = result.allOf;
+  if (Array.isArray(allOf)) {
+    const merged: JsonRecord = {};
     const mergedRequired: string[] = [];
 
-    for (const item of result.allOf) {
+    for (const item of allOf) {
       if (!item || typeof item !== "object") continue;
+      const itemRecord = asJsonRecord(item);
 
       // Merge properties
-      if (item.properties && typeof item.properties === "object") {
-        merged.properties = { ...merged.properties, ...item.properties };
+      if (itemRecord.properties && typeof itemRecord.properties === "object") {
+        const itemProps = asJsonRecord(itemRecord.properties);
+        const existingProps = merged.properties && typeof merged.properties === "object"
+          ? asJsonRecord(merged.properties)
+          : {};
+        merged.properties = { ...existingProps, ...itemProps };
       }
 
       // Merge required arrays
-      if (Array.isArray(item.required)) {
-        for (const req of item.required) {
-          if (!mergedRequired.includes(req)) {
-            mergedRequired.push(req);
+      if (Array.isArray(itemRecord.required)) {
+        for (const req of itemRecord.required) {
+          const reqKey = req as string;
+          if (!mergedRequired.includes(reqKey)) {
+            mergedRequired.push(reqKey);
           }
         }
       }
 
       // Copy other fields from allOf items
-      for (const [key, value] of Object.entries(item)) {
+      for (const [key, value] of Object.entries(itemRecord)) {
         if (key !== "properties" && key !== "required" && merged[key] === undefined) {
           merged[key] = value;
         }
@@ -243,8 +275,11 @@ function mergeAllOf(schema: any): any {
     }
 
     // Apply merged content to result
-    if (merged.properties) {
-      result.properties = { ...result.properties, ...merged.properties };
+    if (merged.properties && typeof merged.properties === "object") {
+      const existingProps = result.properties && typeof result.properties === "object"
+        ? asJsonRecord(result.properties)
+        : {};
+      result.properties = { ...existingProps, ...asJsonRecord(merged.properties) };
     }
     if (mergedRequired.length > 0) {
       const existingRequired = Array.isArray(result.required) ? result.required : [];
@@ -275,30 +310,44 @@ function mergeAllOf(schema: any): any {
  * Scores a schema option for selection in anyOf/oneOf flattening.
  * Higher score = more preferred.
  */
-function scoreSchemaOption(schema: any): { score: number; typeName: string } {
+function schemaTypeName(type: JsonValue): string {
+  if (typeof type === "string" || typeof type === "number" || typeof type === "boolean") {
+    return String(type);
+  }
+  if (type == null) {
+    return "null";
+  }
+  if (Array.isArray(type)) {
+    return type.map((item) => schemaTypeName(item)).join(",");
+  }
+  return String(type);
+}
+
+function scoreSchemaOption(schema: JsonValue): { score: number; typeName: string } {
   if (!schema || typeof schema !== "object") {
     return { score: 0, typeName: "unknown" };
   }
 
-  const type = schema.type;
+  const record = schema as JsonRecord;
+  const type = record.type;
 
   // Object or has properties = highest priority
-  if (type === "object" || schema.properties) {
+  if (type === "object" || record.properties) {
     return { score: 3, typeName: "object" };
   }
 
   // Array or has items = second priority
-  if (type === "array" || schema.items) {
+  if (type === "array" || record.items) {
     return { score: 2, typeName: "array" };
   }
 
   // Any other non-null type
   if (type && type !== "null") {
-    return { score: 1, typeName: type };
+    return { score: 1, typeName: schemaTypeName(type) };
   }
 
   // Null or no type
-  return { score: 0, typeName: type || "null" };
+  return { score: 0, typeName: "null" };
 }
 
 /**
@@ -310,7 +359,7 @@ function scoreSchemaOption(schema: any): { score: number; typeName: string } {
  * - anyOf: [{ enum: ["a"] }, { enum: ["b"] }]
  * - anyOf: [{ type: "string", const: "a" }, { type: "string", const: "b" }]
  */
-function tryMergeEnumFromUnion(options: any[]): string[] | null {
+function tryMergeEnumFromUnion(options: JsonValue[]): string[] | null {
   if (!Array.isArray(options) || options.length === 0) {
     return null;
   }
@@ -322,33 +371,35 @@ function tryMergeEnumFromUnion(options: any[]): string[] | null {
       return null;
     }
 
+    const record = option as JsonRecord;
+
     // Check for const value
-    if (option.const !== undefined) {
-      enumValues.push(String(option.const));
+    if (record.const !== undefined) {
+      enumValues.push(String(record.const));
       continue;
     }
 
     // Check for single-value enum
-    if (Array.isArray(option.enum) && option.enum.length === 1) {
-      enumValues.push(String(option.enum[0]));
+    if (Array.isArray(record.enum) && record.enum.length === 1) {
+      enumValues.push(String(record.enum[0]));
       continue;
     }
 
     // Check for multi-value enum (merge all values)
-    if (Array.isArray(option.enum) && option.enum.length > 0) {
-      for (const val of option.enum) {
+    if (Array.isArray(record.enum) && record.enum.length > 0) {
+      for (const val of record.enum) {
         enumValues.push(String(val));
       }
       continue;
     }
 
     // If option has complex structure (properties, items, etc.), it's not a simple enum
-    if (option.properties || option.items || option.anyOf || option.oneOf || option.allOf) {
+    if (record.properties || record.items || record.anyOf || record.oneOf || record.allOf) {
       return null;
     }
 
     // If option has only type (no const/enum), it's not an enum pattern
-    if (option.type && !option.const && !option.enum) {
+    if (record.type && !record.const && !record.enum) {
       return null;
     }
   }
@@ -366,7 +417,7 @@ function tryMergeEnumFromUnion(options: any[]): string[] | null {
  * { anyOf: [{ const: "a" }, { const: "b" }] }
  * → { type: "string", enum: ["a", "b"] }
  */
-function flattenAnyOfOneOf(schema: any): any {
+function flattenAnyOfOneOf(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -375,7 +426,7 @@ function flattenAnyOfOneOf(schema: any): any {
     return schema.map(item => flattenAnyOfOneOf(item));
   }
 
-  let result: any = { ...schema };
+  let result: JsonRecord = { ...schema };
 
   // Process anyOf or oneOf
   for (const unionKey of ["anyOf", "oneOf"] as const) {
@@ -384,11 +435,12 @@ function flattenAnyOfOneOf(schema: any): any {
       const parentDesc = typeof result.description === "string" ? result.description : "";
 
       // First, check if this is an enum pattern (anyOf with const/enum values)
-      // This is crucial for tools like WebFetch where format: anyOf[{const:"text"},{const:"markdown"},{const:"html"}]
+      // This is crucial for tools like WebFetch where format: JsonValueOf[{const:"text"},{const:"markdown"},{const:"html"}]
       const mergedEnum = tryMergeEnumFromUnion(options);
       if (mergedEnum !== null) {
         // This is an enum pattern - merge all values into a single enum
-        const { [unionKey]: _, ...rest } = result;
+        const { [unionKey]: omittedUnion, ...rest } = result;
+        void omittedUnion;
         result = {
           ...rest,
           type: "string",
@@ -419,7 +471,7 @@ function flattenAnyOfOneOf(schema: any): any {
       }
 
       // Select the best option and flatten it recursively
-      let selected = flattenAnyOfOneOf(options[bestIdx]) || { type: "string" };
+      let selected = (flattenAnyOfOneOf(options[bestIdx]) || { type: "string" }) as JsonRecord;
 
       // Preserve parent description
       if (parentDesc) {
@@ -438,7 +490,9 @@ function flattenAnyOfOneOf(schema: any): any {
       }
 
       // Replace result with selected schema, preserving other fields
-      const { [unionKey]: _, description: __, ...rest } = result;
+      const { [unionKey]: omittedUnion, description: omittedDescription, ...rest } = result;
+      void omittedUnion;
+      void omittedDescription;
       result = { ...rest, ...selected };
     }
   }
@@ -457,7 +511,7 @@ function flattenAnyOfOneOf(schema: any): any {
  * Phase 2c: Flattens type arrays to single type with nullable hint.
  * { type: ["string", "null"] } → { type: "string", description: "(nullable)" }
  */
-function flattenTypeArrays(schema: any, nullableFields?: Map<string, string[]>, currentPath?: string): any {
+function flattenTypeArrays(schema: JsonValue, nullableFields?: Map<string, string[]>, currentPath?: string): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -466,7 +520,7 @@ function flattenTypeArrays(schema: any, nullableFields?: Map<string, string[]>, 
     return schema.map((item, idx) => flattenTypeArrays(item, nullableFields, `${currentPath || ""}[${idx}]`));
   }
 
-  let result: any = { ...schema };
+  let result: JsonRecord = { ...schema };
   const localNullableFields = nullableFields || new Map<string, string[]>();
 
   // Handle type array
@@ -492,16 +546,17 @@ function flattenTypeArrays(schema: any, nullableFields?: Map<string, string[]>, 
 
   // Recursively process properties
   if (result.properties && typeof result.properties === "object") {
-    const newProps: any = {};
+    const newProps: JsonRecord = {};
     for (const [propKey, propValue] of Object.entries(result.properties)) {
       const propPath = currentPath ? `${currentPath}.properties.${propKey}` : `properties.${propKey}`;
       const processed = flattenTypeArrays(propValue, localNullableFields, propPath);
       newProps[propKey] = processed;
 
       // Track nullable fields for required array cleanup
-      if (processed && typeof processed === "object" && 
-          typeof processed.description === "string" && 
-          processed.description.includes("nullable")) {
+      const processedRecord = asJsonRecord(processed);
+      if (processed && typeof processed === "object" &&
+          typeof processedRecord.description === "string" &&
+          processedRecord.description.includes("nullable")) {
         const objectPath = currentPath || "";
         const existing = localNullableFields.get(objectPath) || [];
         existing.push(propKey);
@@ -512,12 +567,13 @@ function flattenTypeArrays(schema: any, nullableFields?: Map<string, string[]>, 
   }
 
   // Remove nullable fields from required array
-  if (Array.isArray(result.required) && !nullableFields) {
+  const requiredFields = result.required;
+  if (Array.isArray(requiredFields) && !nullableFields) {
     // Only at root level, filter out nullable fields
     const nullableAtRoot = localNullableFields.get("") || [];
     if (nullableAtRoot.length > 0) {
-      result.required = result.required.filter((r: string) => !nullableAtRoot.includes(r));
-      if (result.required.length === 0) {
+      result.required = requiredFields.filter((field) => typeof field !== "string" || !nullableAtRoot.includes(field));
+      if (Array.isArray(result.required) && result.required.length === 0) {
         delete result.required;
       }
     }
@@ -537,7 +593,7 @@ function flattenTypeArrays(schema: any, nullableFields?: Map<string, string[]>, 
  * Phase 3: Removes unsupported keywords after hints have been extracted.
  * @param insideProperties - When true, keys are property NAMES (preserve); when false, keys are JSON Schema keywords (filter).
  */
-function removeUnsupportedKeywords(schema: any, insideProperties: boolean = false): any {
+function removeUnsupportedKeywords(schema: JsonValue, insideProperties: boolean = false): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -546,7 +602,7 @@ function removeUnsupportedKeywords(schema: any, insideProperties: boolean = fals
     return schema.map(item => removeUnsupportedKeywords(item, false));
   }
 
-  const result: any = {};
+  const result: JsonRecord = {};
   for (const [key, value] of Object.entries(schema)) {
     if (!insideProperties && (UNSUPPORTED_KEYWORDS as readonly string[]).includes(key)) {
       continue;
@@ -554,7 +610,7 @@ function removeUnsupportedKeywords(schema: any, insideProperties: boolean = fals
 
     if (typeof value === "object" && value !== null) {
       if (key === "properties") {
-        const propertiesResult: any = {};
+        const propertiesResult: JsonRecord = {};
         for (const [propName, propSchema] of Object.entries(value as object)) {
           propertiesResult[propName] = removeUnsupportedKeywords(propSchema, false);
         }
@@ -572,7 +628,7 @@ function removeUnsupportedKeywords(schema: any, insideProperties: boolean = fals
 /**
  * Phase 3b: Cleans up required fields - removes entries that don't exist in properties.
  */
-function cleanupRequiredFields(schema: any): any {
+function cleanupRequiredFields(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -581,16 +637,18 @@ function cleanupRequiredFields(schema: any): any {
     return schema.map(item => cleanupRequiredFields(item));
   }
 
-  let result: any = { ...schema };
+  const result: JsonRecord = { ...schema };
 
   // Clean up required array if properties exist
-  if (Array.isArray(result.required) && result.properties && typeof result.properties === "object") {
-    const validRequired = result.required.filter((req: string) => 
-      Object.prototype.hasOwnProperty.call(result.properties, req)
+  const requiredFields = result.required;
+  const properties = result.properties;
+  if (Array.isArray(requiredFields) && properties && typeof properties === "object") {
+    const validRequired = requiredFields.filter((req) =>
+      Object.prototype.hasOwnProperty.call(properties, req as PropertyKey)
     );
     if (validRequired.length === 0) {
       delete result.required;
-    } else if (validRequired.length !== result.required.length) {
+    } else if (validRequired.length !== requiredFields.length) {
       result.required = validRequired;
     }
   }
@@ -609,7 +667,7 @@ function cleanupRequiredFields(schema: any): any {
  * Phase 4: Adds placeholder property for empty object schemas.
  * Claude VALIDATED mode requires at least one property.
  */
-function addEmptySchemaPlaceholder(schema: any): any {
+function addEmptySchemaPlaceholder(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
@@ -618,7 +676,7 @@ function addEmptySchemaPlaceholder(schema: any): any {
     return schema.map(item => addEmptySchemaPlaceholder(item));
   }
 
-  let result: any = { ...schema };
+  const result: JsonRecord = { ...schema };
 
   // Check if this is an empty object schema
   const isObjectType = result.type === "object";
@@ -656,12 +714,12 @@ function addEmptySchemaPlaceholder(schema: any): any {
  * 
  * Ported from CLIProxyAPI's CleanJSONSchemaForAntigravity (gemini_schema.go)
  */
-export function cleanJSONSchemaForAntigravity(schema: any): any {
+export function cleanJSONSchemaForAntigravity(schema: JsonValue): JsonValue {
   if (!schema || typeof schema !== "object") {
     return schema;
   }
 
-  let result = schema;
+  let result: JsonValue = schema;
 
   // Phase 1: Convert and add hints
   result = convertRefsToHints(result);
@@ -863,9 +921,11 @@ export function extractVariantThinkingConfig(
 export function resolveThinkingConfig(
   userConfig: ThinkingConfig | undefined,
   isThinkingModel: boolean,
-  _isClaudeModel: boolean,
-  _hasAssistantHistory: boolean,
+  isClaudeModel: boolean,
+  hasAssistantHistory: boolean,
 ): ThinkingConfig | undefined {
+  void isClaudeModel;
+  void hasAssistantHistory;
   // For thinking-capable models (including Claude thinking models), enable thinking by default
   // The signature validation/restoration is handled by filterUnsignedThinkingBlocks
   if (isThinkingModel && !userConfig) {
@@ -919,7 +979,7 @@ function isToolBlock(part: Record<string, unknown>): boolean {
  * Used for Claude models to avoid signature validation errors entirely.
  * Claude will generate fresh thinking for each turn.
  */
-function stripAllThinkingBlocks(contentArray: any[]): any[] {
+function stripAllThinkingBlocks(contentArray: JsonRecord[]): JsonRecord[] {
   return contentArray.filter(item => {
     if (!item || typeof item !== "object") return true;
     if (isToolBlock(item)) return true;
@@ -935,13 +995,13 @@ function stripAllThinkingBlocks(contentArray: any[]): any[] {
  * Only removes unsigned thinking blocks; preserves those with valid signatures.
  */
 function removeTrailingThinkingBlocks(
-  contentArray: any[],
+  contentArray: JsonRecord[],
   sessionId?: string,
   getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined,
-): any[] {
+): JsonRecord[] {
   const result = [...contentArray];
 
-  while (result.length > 0 && isThinkingPart(result[result.length - 1])) {
+  while (result.length > 0 && isThinkingPart(result[result.length - 1] as JsonRecord)) {
     const part = result[result.length - 1];
     const isValid = sessionId && getCachedSignatureFn
       ? isOurCachedSignature(part as Record<string, unknown>, sessionId, getCachedSignatureFn)
@@ -1008,12 +1068,12 @@ function getThinkingText(part: Record<string, unknown>): string {
   if (typeof part.thinking === "string") return part.thinking;
 
   if (part.text && typeof part.text === "object") {
-    const maybeText = (part.text as any).text;
+    const maybeText = (part.text as JsonRecord).text;
     if (typeof maybeText === "string") return maybeText;
   }
 
   if (part.thinking && typeof part.thinking === "object") {
-    const maybeText = (part.thinking as any).text ?? (part.thinking as any).thinking;
+    const maybeText = (part.thinking as JsonRecord).text ?? (part.thinking as JsonRecord).thinking;
     if (typeof maybeText === "string") return maybeText;
   }
 
@@ -1047,7 +1107,7 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
   if (part.thought === true) {
     let textContent: unknown = part.text;
     if (typeof textContent === "object" && textContent !== null) {
-      const maybeText = (textContent as any).text;
+      const maybeText = (textContent as JsonRecord).text;
       textContent = typeof maybeText === "string" ? maybeText : undefined;
     }
 
@@ -1066,7 +1126,7 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
   if (part.type === "thinking" || part.type === "redacted_thinking" || part.thinking !== undefined) {
     let thinkingContent: unknown = part.thinking ?? part.text;
     if (thinkingContent !== undefined && typeof thinkingContent === "object" && thinkingContent !== null) {
-      const maybeText = (thinkingContent as any).text ?? (thinkingContent as any).thinking;
+      const maybeText = (thinkingContent as JsonRecord).text ?? (thinkingContent as JsonRecord).thinking;
       thinkingContent = typeof maybeText === "string" ? maybeText : undefined;
     }
 
@@ -1085,7 +1145,7 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
   if (part.type === "reasoning") {
     let textContent: unknown = part.text;
     if (typeof textContent === "object" && textContent !== null) {
-      const maybeText = (textContent as any).text;
+      const maybeText = (textContent as JsonRecord).text;
       textContent = typeof maybeText === "string" ? maybeText : undefined;
     }
 
@@ -1104,7 +1164,7 @@ function sanitizeThinkingPart(part: Record<string, unknown>): Record<string, unk
   return stripCacheControlRecursively(part) as Record<string, unknown>;
 }
 
-function findLastAssistantIndex(contents: any[], roleValue: "model" | "assistant"): number {
+function findLastAssistantIndex(contents: JsonRecord[], roleValue: "model" | "assistant"): number {
   for (let i = contents.length - 1; i >= 0; i--) {
     const content = contents[i];
     if (content && typeof content === "object" && content.role === roleValue) {
@@ -1115,19 +1175,19 @@ function findLastAssistantIndex(contents: any[], roleValue: "model" | "assistant
 }
 
 function filterContentArray(
-  contentArray: any[],
+  contentArray: JsonRecord[],
   sessionId?: string,
   getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined,
   isClaudeModel?: boolean,
   isLastAssistantMessage: boolean = false,
-): any[] {
+): JsonRecord[] {
   // For Claude models, strip thinking blocks by default for reliability
   // User can opt-in to keep thinking via config: { "keep_thinking": true }
   if (isClaudeModel && !getKeepThinking()) {
     return stripAllThinkingBlocks(contentArray);
   }
 
-  const filtered: any[] = [];
+  const filtered: JsonRecord[] = [];
 
   for (const item of contentArray) {
     if (!item || typeof item !== "object") {
@@ -1142,11 +1202,11 @@ function filterContentArray(
       }
 
       const sanitizedToolBlock = { ...(item as Record<string, unknown>) };
-      delete (sanitizedToolBlock as any).signature;
-      delete (sanitizedToolBlock as any).thoughtSignature;
-      delete (sanitizedToolBlock as any).thought_signature;
-      delete (sanitizedToolBlock as any).thought;
-      filtered.push(sanitizedToolBlock);
+      delete (sanitizedToolBlock as JsonRecord).signature;
+      delete (sanitizedToolBlock as JsonRecord).thoughtSignature;
+      delete (sanitizedToolBlock as JsonRecord).thought_signature;
+      delete (sanitizedToolBlock as JsonRecord).thought;
+      filtered.push(asJsonRecord(sanitizedToolBlock));
       continue;
     }
 
@@ -1178,7 +1238,7 @@ function filterContentArray(
       // First check if it's our cached signature
       if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
         const sanitized = sanitizeThinkingPart(item);
-        if (sanitized) filtered.push(sanitized);
+        if (sanitized) filtered.push(asJsonRecord(sanitized));
         continue;
       }
       
@@ -1198,7 +1258,7 @@ function filterContentArray(
 
     if (isOurCachedSignature(item, sessionId, getCachedSignatureFn)) {
       const sanitized = sanitizeThinkingPart(item);
-      if (sanitized) filtered.push(sanitized);
+      if (sanitized) filtered.push(asJsonRecord(sanitized));
       continue;
     }
 
@@ -1208,13 +1268,13 @@ function filterContentArray(
         const cachedSignature = getCachedSignatureFn(sessionId, text);
         if (cachedSignature && cachedSignature.length >= 50) {
           const restoredPart = { ...item };
-          if ((item as any).thought === true) {
-            (restoredPart as any).thoughtSignature = cachedSignature;
+          if ((item as JsonRecord).thought === true) {
+            (restoredPart as JsonRecord).thoughtSignature = cachedSignature;
           } else {
-            (restoredPart as any).signature = cachedSignature;
+            (restoredPart as JsonRecord).signature = cachedSignature;
           }
           const sanitized = sanitizeThinkingPart(restoredPart as Record<string, unknown>);
-          if (sanitized) filtered.push(sanitized);
+          if (sanitized) filtered.push(asJsonRecord(sanitized));
           continue;
         }
       }
@@ -1233,43 +1293,45 @@ function filterContentArray(
  * @param getCachedSignatureFn - Optional function to retrieve cached signatures
  */
 export function filterUnsignedThinkingBlocks(
-  contents: any[],
+  contents: JsonRecord[],
   sessionId?: string,
   getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined,
   isClaudeModel?: boolean,
-): any[] {
+): JsonRecord[] {
   const lastAssistantIdx = findLastAssistantIndex(contents, "model");
 
-  return contents.map((content: any, idx: number) => {
+  return contents.map((content: JsonRecord, idx: number) => {
     if (!content || typeof content !== "object") {
       return content;
     }
 
     const isLastAssistant = idx === lastAssistantIdx;
 
-    if (Array.isArray((content as any).parts)) {
+    const contentParts = content.parts;
+    if (Array.isArray(contentParts)) {
       const filteredParts = filterContentArray(
-        (content as any).parts,
+        asJsonRecords(contentParts),
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
         isLastAssistant,
       );
 
-      const trimmedParts = (content as any).role === "model" && !isClaudeModel
+      const trimmedParts = (content as JsonRecord).role === "model" && !isClaudeModel
         ? removeTrailingThinkingBlocks(filteredParts, sessionId, getCachedSignatureFn)
         : filteredParts;
 
       return { ...content, parts: trimmedParts };
     }
 
-    if (Array.isArray((content as any).content)) {
-      const isAssistantRole = (content as any).role === "assistant";
+    const contentBlocks = content.content;
+    if (Array.isArray(contentBlocks)) {
+      const isAssistantRole = content.role === "assistant";
       const isLastAssistantContent = idx === lastAssistantIdx || 
         (isAssistantRole && idx === findLastAssistantIndex(contents, "assistant"));
       
       const filteredContent = filterContentArray(
-        (content as any).content,
+        asJsonRecords(contentBlocks),
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
@@ -1291,24 +1353,25 @@ export function filterUnsignedThinkingBlocks(
  * Filters thinking blocks from Anthropic-style messages[] payloads using cached signatures.
  */
 export function filterMessagesThinkingBlocks(
-  messages: any[],
+  messages: JsonRecord[],
   sessionId?: string,
   getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined,
   isClaudeModel?: boolean,
-): any[] {
+): JsonRecord[] {
   const lastAssistantIdx = findLastAssistantIndex(messages, "assistant");
 
-  return messages.map((message: any, idx: number) => {
+  return messages.map((message: JsonRecord, idx: number) => {
     if (!message || typeof message !== "object") {
       return message;
     }
 
-    if (Array.isArray((message as any).content)) {
-      const isAssistantRole = (message as any).role === "assistant";
+    const messageContent = message.content;
+    if (Array.isArray(messageContent)) {
+      const isAssistantRole = message.role === "assistant";
       const isLastAssistant = isAssistantRole && idx === lastAssistantIdx;
       
       const filteredContent = filterContentArray(
-        (message as any).content,
+        asJsonRecords(messageContent),
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
@@ -1354,7 +1417,7 @@ export function deepFilterThinkingBlocks(
 
     if (Array.isArray(obj.contents)) {
       obj.contents = filterUnsignedThinkingBlocks(
-        obj.contents as any[],
+        obj.contents as JsonRecord[],
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
@@ -1363,7 +1426,7 @@ export function deepFilterThinkingBlocks(
 
     if (Array.isArray(obj.messages)) {
       obj.messages = filterMessagesThinkingBlocks(
-        obj.messages as any[],
+        obj.messages as JsonRecord[],
         sessionId,
         getCachedSignatureFn,
         isClaudeModel,
@@ -1382,63 +1445,66 @@ export function deepFilterThinkingBlocks(
  * thinking parts (type: "thinking") to reasoning format.
  * Claude responses through Antigravity may use candidates structure with Anthropic-style parts.
  */
-function transformGeminiCandidate(candidate: any): any {
+function transformGeminiCandidate(candidate: JsonValue): JsonValue {
   if (!candidate || typeof candidate !== "object") {
     return candidate;
   }
 
-  const content = candidate.content;
-  if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
+  const content = asJsonRecord(candidate).content;
+  if (!content || typeof content !== "object" || !Array.isArray(asJsonRecord(content).parts)) {
     return candidate;
   }
+  const contentRecord = asJsonRecord(content);
+  const contentParts = asJsonRecords(contentRecord.parts as JsonValue);
 
   const thinkingTexts: string[] = [];
   const preservedImages: Array<{ mimeType: string; data: string }> = [];
-  const transformedParts = content.parts.map((part: any) => {
+  const transformedParts = contentParts.map((part) => {
     if (!part || typeof part !== "object") {
       return part;
     }
+    const partRecord = asJsonRecord(part);
 
     // Handle Gemini-style: thought: true
-    if (part.thought === true) {
-      const thinkingText = part.text || "";
-      thinkingTexts.push(thinkingText);
-      const transformed: Record<string, unknown> = { ...part, type: "reasoning" };
-      if (part.cache_control) transformed.cache_control = part.cache_control;
+    if (partRecord.thought === true) {
+      const thinkingText = partRecord.text || "";
+      thinkingTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
+      const transformed: Record<string, unknown> = { ...partRecord, type: "reasoning" };
+      if (partRecord.cache_control) transformed.cache_control = partRecord.cache_control;
 
       // Convert signature to providerMetadata format for OpenCode
-      const sig = part.signature || part.thoughtSignature;
+      const sig = partRecord.signature || partRecord.thoughtSignature;
       if (sig) {
         transformed.providerMetadata = {
           anthropic: { signature: sig }
         };
-        delete (transformed as any).signature;
-        delete (transformed as any).thoughtSignature;
+        delete (transformed as JsonRecord).signature;
+        delete (transformed as JsonRecord).thoughtSignature;
       }
 
       return transformed;
     }
 
     // Handle Anthropic-style in candidates: type: "thinking"
-    if (part.type === "thinking") {
-      const thinkingText = part.thinking || part.text || "";
-      thinkingTexts.push(thinkingText);
+    if (partRecord.type === "thinking") {
+      const thinkingText = partRecord.thinking || partRecord.text || "";
+      thinkingTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
       const transformed: Record<string, unknown> = {
-        ...part,
+        ...partRecord,
         type: "reasoning",
         text: thinkingText,
         thought: true,
       };
-      if (part.cache_control) transformed.cache_control = part.cache_control;
+      if (partRecord.cache_control) transformed.cache_control = partRecord.cache_control;
 
       // Convert signature to providerMetadata format for OpenCode
-      const sig = part.signature || part.thoughtSignature;
+      const sig = partRecord.signature || partRecord.thoughtSignature;
       if (sig) {
         transformed.providerMetadata = {
           anthropic: { signature: sig }
         };
-        delete (transformed as any).signature;
-        delete (transformed as any).thoughtSignature;
+        delete (transformed as JsonRecord).signature;
+        delete (transformed as JsonRecord).thoughtSignature;
       }
 
       return transformed;
@@ -1448,14 +1514,15 @@ function transformGeminiCandidate(candidate: any): any {
     // (Ported from LLM-API-Key-Proxy's _extract_tool_call)
     // Fix: When Claude calls a tool with no parameters, args may be undefined.
     // opencode expects state.input to be a record, so we must ensure args: {} as fallback.
-    if (part.functionCall) {
-      const parsedArgs = part.functionCall.args
-        ? recursivelyParseJsonStrings(part.functionCall.args)
+    if (partRecord.functionCall) {
+      const functionCall = asJsonRecord(partRecord.functionCall);
+      const parsedArgs = functionCall.args
+        ? recursivelyParseJsonStrings(functionCall.args)
         : {};
       return {
-        ...part,
+        ...partRecord,
         functionCall: {
-          ...part.functionCall,
+          ...functionCall,
           args: parsedArgs,
         },
       };
@@ -1463,15 +1530,16 @@ function transformGeminiCandidate(candidate: any): any {
 
     // Handle image data (inlineData) - save to disk and return file path.
     // Keep the original bytes for the bridge, which reads this candidate after replacement.
-    if (part.inlineData) {
-      const mimeType = part.inlineData.mimeType;
-      const data = part.inlineData.data;
+    if (partRecord.inlineData) {
+      const inlineData = asJsonRecord(partRecord.inlineData);
+      const mimeType = inlineData.mimeType;
+      const data = inlineData.data;
       if (typeof mimeType === "string" && mimeType.startsWith("image/") && typeof data === "string" && data) {
         preservedImages.push({ mimeType, data });
       }
       const result = processImageData({
-        mimeType,
-        data,
+        mimeType: mimeType as string | undefined,
+        data: data as string | undefined,
       });
       if (result) {
         return { text: result, antigravityImageReplaced: true };
@@ -1482,11 +1550,11 @@ function transformGeminiCandidate(candidate: any): any {
   });
 
   return {
-    ...candidate,
-    content: { ...content, parts: transformedParts },
+    ...asJsonRecord(candidate),
+    content: { ...contentRecord, parts: transformedParts },
     ...(thinkingTexts.length > 0 ? { reasoning_content: thinkingTexts.join("\n\n") } : {}),
     ...(preservedImages.length > 0 ? { preservedImages } : {}),
-  };
+  } as JsonValue;
 }
 
 /**
@@ -1505,11 +1573,12 @@ export function transformThinkingParts(response: unknown): unknown {
 
   // Handle Anthropic-style content array (type: "thinking")
   if (Array.isArray(resp.content)) {
-    const transformedContent: any[] = [];
+    const transformedContent: JsonRecord[] = [];
     for (const block of resp.content) {
-      if (block && typeof block === "object" && (block as any).type === "thinking") {
-        const thinkingText = (block as any).thinking || (block as any).text || "";
-        reasoningTexts.push(thinkingText);
+      if (block && typeof block === "object" && (block as JsonRecord).type === "thinking") {
+        const blockRecord = asJsonRecord(block);
+        const thinkingText = blockRecord.thinking || blockRecord.text || "";
+        reasoningTexts.push(typeof thinkingText === "string" ? thinkingText : String(thinkingText));
         const transformed: Record<string, unknown> = {
           ...block,
           type: "reasoning",
@@ -1518,18 +1587,18 @@ export function transformThinkingParts(response: unknown): unknown {
         };
 
         // Convert signature to providerMetadata format for OpenCode
-        const sig = (block as any).signature || (block as any).thoughtSignature;
+        const sig = (block as JsonRecord).signature || (block as JsonRecord).thoughtSignature;
         if (sig) {
           transformed.providerMetadata = {
             anthropic: { signature: sig }
           };
-          delete (transformed as any).signature;
-          delete (transformed as any).thoughtSignature;
+          delete (transformed as JsonRecord).signature;
+          delete (transformed as JsonRecord).thoughtSignature;
         }
 
-        transformedContent.push(transformed);
+        transformedContent.push(asJsonRecord(transformed));
       } else {
-        transformedContent.push(block);
+        transformedContent.push(asJsonRecord(block));
       }
     }
     result.content = transformedContent;
@@ -1758,7 +1827,7 @@ export function isEmptyResponseBody(text: string): boolean {
       }
       
       // Check if all parts are empty (no text, no functionCall)
-      const hasContent = parts.some((part: any) => {
+      const hasContent = parts.some((part: JsonRecord) => {
         if (!part || typeof part !== "object") return false;
         if (typeof part.text === "string" && part.text.length > 0) return true;
         if (part.functionCall) return true;
@@ -1823,7 +1892,7 @@ export interface StreamingChunkCounter {
 
 export function createStreamingChunkCounter(): StreamingChunkCounter {
   let count = 0;
-  let hasRealContent = false;
+  const hasRealContent = false;
 
   return {
     increment: () => {
@@ -2049,12 +2118,12 @@ export function recursivelyParseJsonStrings(
  * @param contents - Array of Gemini-style content messages
  * @returns Fixed contents array with matched tool responses
  */
-export function fixToolResponseGrouping(contents: any[]): any[] {
+export function fixToolResponseGrouping(contents: JsonRecord[]): JsonRecord[] {
   if (!Array.isArray(contents) || contents.length === 0) {
     return contents;
   }
 
-  const newContents: any[] = [];
+  const newContents: JsonRecord[] = [];
   
   // Track pending tool call groups that need responses
   const pendingGroups: Array<{
@@ -2064,19 +2133,19 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
   }> = [];
   
   // Collected orphan responses (by ID)
-  const collectedResponses = new Map<string, any>();
+  const collectedResponses = new Map<string, JsonRecord>();
   
   for (const content of contents) {
     const role = content.role;
-    const parts = content.parts || [];
+    const parts = asJsonRecords((content.parts || []) as JsonValue).filter((part) => part != null);
     
     // Check if this is a tool response message
-    const responseParts = parts.filter((p: any) => p?.functionResponse);
+    const responseParts = parts.filter((part) => Boolean(part.functionResponse));
     
     if (responseParts.length > 0) {
       // Collect responses by ID (skip duplicates)
       for (const resp of responseParts) {
-        const respId = resp.functionResponse?.id || "";
+        const respId = (nestedRecord(resp.functionResponse)?.id || "") as string;
         if (respId && !collectedResponses.has(respId)) {
           collectedResponses.set(respId, resp);
         }
@@ -2084,7 +2153,10 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
       
       // Try to satisfy the most recent pending group
       for (let i = pendingGroups.length - 1; i >= 0; i--) {
-        const group = pendingGroups[i]!;
+        const group = pendingGroups[i];
+        if (!group) {
+          continue;
+        }
         if (group.ids.every(id => collectedResponses.has(id))) {
           // All IDs found - build the response group
           const groupResponses = group.ids.map(id => {
@@ -2102,15 +2174,15 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
     
     if (role === "model") {
       // Check for function calls in this model message
-      const funcCalls = parts.filter((p: any) => p?.functionCall);
+      const funcCalls = parts.filter((part) => part != null && Boolean(part.functionCall));
       newContents.push(content);
       
       if (funcCalls.length > 0) {
         const callIds = funcCalls
-          .map((fc: any) => fc.functionCall?.id || "")
-          .filter(Boolean);
+          .map((fc) => nestedRecord(fc.functionCall)?.id || "")
+          .filter(Boolean) as string[];
         const funcNames = funcCalls
-          .map((fc: any) => fc.functionCall?.name || "");
+          .map((fc) => nestedRecord(fc.functionCall)?.name || "") as string[];
         
         if (callIds.length > 0) {
           pendingGroups.push({
@@ -2130,15 +2202,19 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
   pendingGroups.sort((a, b) => b.insertAfterIdx - a.insertAfterIdx);
   
   for (const group of pendingGroups) {
-    const groupResponses: any[] = [];
+    const groupResponses: JsonRecord[] = [];
     
     for (let i = 0; i < group.ids.length; i++) {
-      const expectedId = group.ids[i]!;
+      const expectedId = group.ids[i];
+      if (expectedId === undefined) {
+        continue;
+      }
       const expectedName = group.funcNames[i] || "";
       
       if (collectedResponses.has(expectedId)) {
         // Direct ID match - ideal case
-        groupResponses.push(collectedResponses.get(expectedId));
+        const matched = collectedResponses.get(expectedId);
+        if (matched) groupResponses.push(matched);
         collectedResponses.delete(expectedId);
       } else if (collectedResponses.size > 0) {
         // Need to find an orphan response
@@ -2146,7 +2222,7 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
         
         // Pass 1: Match by function name
         for (const [orphanId, orphanResp] of collectedResponses) {
-          const orphanName = orphanResp.functionResponse?.name || "";
+          const orphanName = nestedRecord(orphanResp.functionResponse)?.name || "";
           if (orphanName === expectedName) {
             matchedId = orphanId;
             break;
@@ -2156,7 +2232,7 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
         // Pass 2: Match "unknown_function" orphans
         if (!matchedId) {
           for (const [orphanId, orphanResp] of collectedResponses) {
-            if (orphanResp.functionResponse?.name === "unknown_function") {
+            if (nestedRecord(orphanResp.functionResponse)?.name === "unknown_function") {
               matchedId = orphanId;
               break;
             }
@@ -2169,13 +2245,20 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
         }
         
         if (matchedId) {
-          const orphanResp = collectedResponses.get(matchedId)!;
+          const orphanResp = collectedResponses.get(matchedId);
+          if (orphanResp === undefined) {
+            throw new Error("Missing collected tool response");
+          }
           collectedResponses.delete(matchedId);
           
           // Fix the ID and name to match expected
-          orphanResp.functionResponse.id = expectedId;
-          if (orphanResp.functionResponse.name === "unknown_function" && expectedName) {
-            orphanResp.functionResponse.name = expectedName;
+          const repaired = nestedRecord(orphanResp.functionResponse);
+          if (!repaired) {
+            throw new Error("Missing collected tool response");
+          }
+          repaired.id = expectedId;
+          if (repaired.name === "unknown_function" && expectedName) {
+            repaired.name = expectedName;
           }
           
           log.debug("Auto-repaired tool ID mismatch", {
@@ -2229,7 +2312,7 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
  * @param contents - Array of Gemini-style content messages
  * @returns Object with mismatch details
  */
-export function detectToolIdMismatches(contents: any[]): {
+export function detectToolIdMismatches(contents: JsonRecord[]): {
   hasMismatches: boolean;
   expectedIds: string[];
   foundIds: string[];
@@ -2240,14 +2323,16 @@ export function detectToolIdMismatches(contents: any[]): {
   const foundIds: string[] = [];
   
   for (const content of contents) {
-    const parts = content.parts || [];
+    const parts = asJsonRecords((content.parts || []) as JsonValue);
     
     for (const part of parts) {
-      if (part?.functionCall?.id) {
-        expectedIds.push(part.functionCall.id);
+      const callId = nestedRecord(part.functionCall)?.id;
+      if (callId) {
+        expectedIds.push(callId as string);
       }
-      if (part?.functionResponse?.id) {
-        foundIds.push(part.functionResponse.id);
+      const responseId = nestedRecord(part.functionResponse)?.id;
+      if (responseId) {
+        foundIds.push(responseId as string);
       }
     }
   }
@@ -2275,18 +2360,19 @@ export function detectToolIdMismatches(contents: any[]): {
  * Find orphaned tool_use IDs (tool_use without matching tool_result).
  * Works on Claude format messages.
  */
-export function findOrphanedToolUseIds(messages: any[]): Set<string> {
+export function findOrphanedToolUseIds(messages: JsonRecord[]): Set<string> {
   const toolUseIds = new Set<string>();
   const toolResultIds = new Set<string>();
 
   for (const msg of messages) {
     if (Array.isArray(msg.content)) {
-      for (const block of msg.content) {
+      for (const blockValue of msg.content) {
+        const block = blockValue as JsonRecord;
         if (block.type === "tool_use" && block.id) {
-          toolUseIds.add(block.id);
+          toolUseIds.add(block.id as string);
         }
         if (block.type === "tool_result" && block.tool_use_id) {
-          toolResultIds.add(block.tool_use_id);
+          toolResultIds.add(block.tool_use_id as string);
         }
       }
     }
@@ -2306,7 +2392,7 @@ export function findOrphanedToolUseIds(messages: any[]): Set<string> {
  * @param messages - Claude format messages array
  * @returns Fixed messages with placeholder tool_results for orphans
  */
-export function fixClaudeToolPairing(messages: any[]): any[] {
+export function fixClaudeToolPairing(messages: JsonRecord[] | null | undefined): JsonRecord[] | null | undefined {
   if (!Array.isArray(messages) || messages.length === 0) {
     return messages;
   }
@@ -2315,11 +2401,13 @@ export function fixClaudeToolPairing(messages: any[]): any[] {
   const toolUseMap = new Map<string, { name: string; msgIndex: number }>();
 
   for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
+    const msg = messages[i] as JsonRecord;
     if (msg.role === "assistant" && Array.isArray(msg.content)) {
-      for (const block of msg.content) {
+      for (const blockValue of msg.content) {
+        const block = blockValue as JsonRecord;
         if (block.type === "tool_use" && block.id) {
-          toolUseMap.set(block.id, { name: block.name || `tool-${toolUseMap.size}`, msgIndex: i });
+          const name = typeof block.name === "string" && block.name ? block.name : `tool-${toolUseMap.size}`;
+          toolUseMap.set(block.id as string, { name, msgIndex: i });
         }
       }
     }
@@ -2330,9 +2418,10 @@ export function fixClaudeToolPairing(messages: any[]): any[] {
 
   for (const msg of messages) {
     if (msg.role === "user" && Array.isArray(msg.content)) {
-      for (const block of msg.content) {
+      for (const blockValue of msg.content) {
+        const block = blockValue as JsonRecord;
         if (block.type === "tool_result" && block.tool_use_id) {
-          toolResultIds.add(block.tool_use_id);
+          toolResultIds.add(block.tool_use_id as string);
         }
       }
     }
@@ -2360,10 +2449,11 @@ export function fixClaudeToolPairing(messages: any[]): any[] {
   }
 
   // 5. Build new messages array with injected tool_results
-  const result: any[] = [];
+  const result: JsonRecord[] = [];
 
   for (let i = 0; i < messages.length; i++) {
-    result.push(messages[i]);
+    const current = messages[i];
+    if (current) result.push(current);
 
     const orphansForMsg = orphansByMsgIndex.get(i);
     if (orphansForMsg && orphansForMsg.length > 0) {
@@ -2401,15 +2491,13 @@ export function fixClaudeToolPairing(messages: any[]): any[] {
  * Nuclear option: Remove orphaned tool_use blocks entirely.
  * Called when fixClaudeToolPairing() fails to pair all tools.
  */
-function removeOrphanedToolUse(messages: any[], orphanIds: Set<string>): any[] {
+function removeOrphanedToolUse(messages: JsonRecord[], orphanIds: Set<string>): JsonRecord[] {
   return messages
     .map((msg) => {
       if (msg.role === "assistant" && Array.isArray(msg.content)) {
         return {
           ...msg,
-          content: msg.content.filter(
-            (block: any) => block.type !== "tool_use" || !orphanIds.has(block.id)
-          ),
+          content: asJsonRecords(msg.content as JsonValue).filter((block) => block.type !== "tool_use" || !orphanIds.has(block.id as string)),
         };
       }
       return msg;
@@ -2425,13 +2513,16 @@ function removeOrphanedToolUse(messages: any[], orphanIds: Set<string>): any[] {
  * Validate and fix tool pairing with fallback nuclear option.
  * Defense in depth: tries gentle fix first, then nuclear removal.
  */
-export function validateAndFixClaudeToolPairing(messages: any[]): any[] {
+export function validateAndFixClaudeToolPairing(messages: JsonRecord[] | null | undefined): JsonRecord[] | null | undefined {
   if (!Array.isArray(messages) || messages.length === 0) {
     return messages;
   }
 
   // First: Try gentle fix (inject placeholder tool_results)
-  let fixed = fixClaudeToolPairing(messages);
+  const fixed = fixClaudeToolPairing(messages);
+  if (!fixed) {
+    return fixed;
+  }
 
   // Second: Validate - find any remaining orphans
   const orphanIds = findOrphanedToolUseIds(fixed);
@@ -2525,26 +2616,27 @@ function formatTypeHint(propData: Record<string, unknown>, depth = 0): string {
  * @returns Modified tools array with signatures injected
  */
 export function injectParameterSignatures(
-  tools: any[],
+  tools: JsonRecord[] | null | undefined,
   promptTemplate = "\n\n⚠️ STRICT PARAMETERS: {params}.",
-): any[] {
+): JsonRecord[] | null | undefined {
   if (!tools || !Array.isArray(tools)) return tools;
 
   return tools.map((tool) => {
     const declarations = tool.functionDeclarations;
     if (!Array.isArray(declarations)) return tool;
 
-    const newDeclarations = declarations.map((decl: any) => {
+    const newDeclarations = asJsonRecords(declarations).map((decl) => {
+      const description = typeof decl.description === "string" ? decl.description : "";
       // Skip if signature already injected (avoids duplicate injection)
-      if (decl.description?.includes("STRICT PARAMETERS:")) {
+      if (description.includes("STRICT PARAMETERS:")) {
         return decl;
       }
 
-      const schema = decl.parameters || decl.parametersJsonSchema;
+      const schema = nestedRecord(decl.parameters || decl.parametersJsonSchema);
       if (!schema) return decl;
 
-      const required = schema.required as string[] ?? [];
-      const properties = schema.properties as Record<string, unknown> ?? {};
+      const required = Array.isArray(schema.required) ? schema.required.filter((item): item is string => typeof item === "string") : [];
+      const properties = (schema.properties && typeof schema.properties === "object" ? schema.properties : {}) as Record<string, unknown>;
 
       if (Object.keys(properties).length === 0) return decl;
 
@@ -2558,7 +2650,7 @@ export function injectParameterSignatures(
       
       return {
         ...decl,
-        description: (decl.description || "") + sigStr,
+        description: description + sigStr,
       };
     });
 
@@ -2628,8 +2720,8 @@ export function injectToolHardeningInstruction(
  * @returns Object with modified contents and pending call IDs map
  */
 export function assignToolIdsToContents(
-  contents: any[]
-): { contents: any[]; pendingCallIdsByName: Map<string, string[]>; toolCallCounter: number } {
+  contents: JsonRecord[]
+): { contents: JsonRecord[]; pendingCallIdsByName: Map<string, string[]>; toolCallCounter: number } {
   if (!Array.isArray(contents)) {
     return { contents, pendingCallIdsByName: new Map(), toolCallCounter: 0 };
   }
@@ -2637,20 +2729,22 @@ export function assignToolIdsToContents(
   let toolCallCounter = 0;
   const pendingCallIdsByName = new Map<string, string[]>();
 
-  const newContents = contents.map((content: any) => {
-    if (!content || !Array.isArray(content.parts)) {
+  const newContents = contents.map((content) => {
+    const contentRecord = asJsonRecord(content);
+    if (!content || !Array.isArray(contentRecord.parts)) {
       return content;
     }
 
-    const newParts = content.parts.map((part: any) => {
-      if (part && typeof part === "object" && part.functionCall) {
-        const call = { ...part.functionCall };
+    const newParts = asJsonRecords(contentRecord.parts).map((part) => {
+      const callRecord = nestedRecord(part.functionCall);
+      if (part && typeof part === "object" && callRecord) {
+        const call = { ...callRecord };
         if (!call.id) {
           call.id = `tool-call-${++toolCallCounter}`;
         }
         const nameKey = typeof call.name === "string" ? call.name : `tool-${toolCallCounter}`;
         const queue = pendingCallIdsByName.get(nameKey) || [];
-        queue.push(call.id);
+        queue.push(call.id as string);
         pendingCallIdsByName.set(nameKey, queue);
         return { ...part, functionCall: call };
       }
@@ -2672,21 +2766,23 @@ export function assignToolIdsToContents(
  * @returns Modified contents with matched response IDs
  */
 export function matchResponseIdsToContents(
-  contents: any[],
+  contents: JsonRecord[],
   pendingCallIdsByName: Map<string, string[]>
-): any[] {
+): JsonRecord[] {
   if (!Array.isArray(contents)) {
     return contents;
   }
 
-  return contents.map((content: any) => {
-    if (!content || !Array.isArray(content.parts)) {
+  return contents.map((content) => {
+    const contentRecord = asJsonRecord(content);
+    if (!content || !Array.isArray(contentRecord.parts)) {
       return content;
     }
 
-    const newParts = content.parts.map((part: any) => {
-      if (part && typeof part === "object" && part.functionResponse) {
-        const resp = { ...part.functionResponse };
+    const newParts = asJsonRecords(contentRecord.parts).map((part) => {
+      const responseRecord = nestedRecord(part.functionResponse);
+      if (part && typeof part === "object" && responseRecord) {
+        const resp = { ...responseRecord };
         if (!resp.id && typeof resp.name === "string") {
           const queue = pendingCallIdsByName.get(resp.name);
           if (queue && queue.length > 0) {
@@ -2729,7 +2825,7 @@ export function applyToolPairingFixes(
   if (Array.isArray(payload.contents)) {
     // First pass: assign IDs to functionCalls
     const { contents: contentsWithIds, pendingCallIdsByName } = assignToolIdsToContents(
-      payload.contents as any[]
+      payload.contents as JsonRecord[]
     );
 
     // Second pass: match functionResponse IDs
@@ -2740,17 +2836,17 @@ export function applyToolPairingFixes(
     contentsFixed = true;
 
     log.debug("Applied tool pairing fixes to contents[]", {
-      originalLength: (payload.contents as any[]).length,
+      originalLength: (payload.contents as JsonRecord[]).length,
     });
   }
 
   // Fix Claude format (messages[])
   if (isClaude && Array.isArray(payload.messages)) {
-    payload.messages = validateAndFixClaudeToolPairing(payload.messages as any[]);
+    payload.messages = validateAndFixClaudeToolPairing(payload.messages as JsonRecord[]);
     messagesFixed = true;
 
     log.debug("Applied tool pairing fixes to messages[]", {
-      originalLength: (payload.messages as any[]).length,
+      originalLength: (payload.messages as JsonRecord[]).length,
     });
   }
 
@@ -2777,7 +2873,7 @@ export function applyToolPairingFixes(
  * rejected the request with "Requests ending with a model turn are not supported".
  * @returns Sanitized contents that no longer end with an orphaned model turn
  */
-export function sanitizeEndingModelTurn(contents: any[], force = false): any[] {
+export function sanitizeEndingModelTurn(contents: JsonRecord[], force = false): JsonRecord[] {
   if (!Array.isArray(contents) || contents.length === 0) {
     return contents;
   }
@@ -2793,10 +2889,10 @@ export function sanitizeEndingModelTurn(contents: any[], force = false): any[] {
   }
 
   const parts = Array.isArray((last as { parts?: unknown }).parts)
-    ? (last as { parts: any[] }).parts
+    ? (last as { parts: JsonRecord[] }).parts
     : [];
   const hasFunctionCall = parts.some(
-    (p: any) => p && typeof p === "object" && p.functionCall
+    (p: JsonRecord) => p && typeof p === "object" && p.functionCall
   );
   if (!hasFunctionCall && !force) {
     return contents;
@@ -2810,7 +2906,7 @@ export function sanitizeEndingModelTurn(contents: any[], force = false): any[] {
   // Last-resort guarantee: if we still end with a model turn (holding a
   // functionCall, or any model turn when force=true), drop trailing turns
   // until the history ends with a user turn so the request is accepted.
-  const isTrailingModelTurn = (c: any): boolean =>
+  const isTrailingModelTurn = (c: JsonRecord): boolean =>
     !!c && (c.role === "model" || c.role === "assistant");
 
   if (hasFunctionCall && !isTrailingModelTurn(fixed[fixed.length - 1])) {

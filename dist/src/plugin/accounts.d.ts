@@ -77,7 +77,6 @@ export declare class AccountManager {
     private lastToastAccountIndex;
     private lastToastTime;
     private savePending;
-    private saveTimeout;
     private savePromiseResolvers;
     static loadFromDisk(authFallback?: OAuthAuthDetails): Promise<AccountManager>;
     constructor(authFallback?: OAuthAuthDetails, stored?: AccountStorageV4 | null);
@@ -103,7 +102,7 @@ export declare class AccountManager {
      * Should be called AFTER request completion, not during account selection.
      */
     markAccountUsed(accountIndex: number): void;
-    markRateLimitedWithReason(account: ManagedAccount, family: ModelFamily, headerStyle: HeaderStyle, model: string | null | undefined, reason: RateLimitReason, retryAfterMs?: number | null, failureTtlMs?: number, // Default 1 hour TTL
+    markRateLimitedWithReason(account: ManagedAccount, family: ModelFamily, _headerStyle: HeaderStyle, model: string | null | undefined, reason: RateLimitReason, retryAfterMs?: number | null, failureTtlMs?: number, // Default 1 hour TTL
     absoluteResetAtMs?: number | null): number;
     markRequestSuccess(account: ManagedAccount): void;
     clearAllRateLimitsForFamily(family: ModelFamily, model?: string | null): void;

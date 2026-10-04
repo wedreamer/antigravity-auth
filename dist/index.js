@@ -6,7 +6,7 @@ import { setupV2 } from "./src/v2/adapter.js";
  * - In v2 (2.0+): Invoked via export default .setup(ctx)
  */
 export default {
-    id: "opencode-antigravity-auth",
+    id: "antigravity-auth",
     async setup(ctx) {
         return await setupV2(ctx);
     },

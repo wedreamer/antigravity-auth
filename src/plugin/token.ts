@@ -87,6 +87,8 @@ export async function refreshAccessToken(
   client: PluginClient,
   providerId: string,
 ): Promise<OAuthAuthDetails | undefined> {
+  void client;
+  void providerId;
   const parts = parseRefreshParts(auth.refresh);
   if (!parts.refreshToken) {
     return undefined;

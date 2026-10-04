@@ -50,7 +50,10 @@ describe("Safety Shield & Telemetry", () => {
     };
 
     const manager = new AccountManager(undefined, storage);
-    const acc0 = manager.getCurrentAccountForFamily("gemini")!;
+    const acc0 = manager.getCurrentAccountForFamily("gemini");
+    if (!acc0) {
+      throw new Error("expected gemini account");
+    }
     expect(acc0.index).toBe(0);
 
     // First high risk trigger
@@ -63,7 +66,10 @@ describe("Safety Shield & Telemetry", () => {
     // Advance account
     const nextAcc = manager.advanceToNextAccount("gemini");
     expect(nextAcc).not.toBeNull();
-    expect(nextAcc!.index).toBe(1);
+    if (!nextAcc) {
+      throw new Error("expected next account");
+    }
+    expect(nextAcc.index).toBe(1);
   });
 
   it("resets consecutiveHighRiskTriggers when low risk response received", () => {
@@ -76,7 +82,10 @@ describe("Safety Shield & Telemetry", () => {
     };
 
     const manager = new AccountManager(undefined, storage);
-    const acc = manager.getCurrentAccountForFamily("gemini")!;
+    const acc = manager.getCurrentAccountForFamily("gemini");
+    if (!acc) {
+      throw new Error("expected gemini account");
+    }
     manager.recordSafetyRiskTrigger(acc);
     expect(acc.consecutiveHighRiskTriggers).toBe(1);
 

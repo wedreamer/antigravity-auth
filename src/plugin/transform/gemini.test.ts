@@ -14,6 +14,13 @@ import {
 } from "./gemini";
 import type { RequestPayload } from "./types";
 
+function must<T>(value: T | null | undefined): T {
+  if (value === undefined || value === null) {
+    throw new Error("expected value");
+  }
+  return value;
+}
+
 describe("transform/gemini", () => {
   describe("isGeminiModel", () => {
     it("returns true for gemini-pro", () => {
@@ -770,9 +777,9 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const props = result.properties as Record<string, Record<string, string>>;
-      expect(props["name"]!.type).toBe("STRING");
-      expect(props["age"]!.type).toBe("NUMBER");
-      expect(props["active"]!.type).toBe("BOOLEAN");
+      expect(must(props["name"]).type).toBe("STRING");
+      expect(must(props["age"]).type).toBe("NUMBER");
+      expect(must(props["active"]).type).toBe("BOOLEAN");
     });
 
     it("transforms nested objects recursively", () => {
@@ -790,10 +797,10 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const props = result.properties as Record<string, Record<string, unknown>>;
-      expect(props["user"]!.type).toBe("OBJECT");
+      expect(must(props["user"]).type).toBe("OBJECT");
       expect(props["user"]).not.toHaveProperty("additionalProperties");
-      const userProps = props["user"]!.properties as Record<string, Record<string, string>>;
-      expect(userProps["email"]!.type).toBe("STRING");
+      const userProps = must(props["user"]).properties as Record<string, Record<string, string>>;
+      expect(must(userProps["email"]).type).toBe("STRING");
     });
 
     it("transforms array items schema", () => {
@@ -811,7 +818,7 @@ describe("transform/gemini", () => {
       const items = result.items as Record<string, unknown>;
       expect(items.type).toBe("OBJECT");
       const itemProps = items.properties as Record<string, Record<string, string>>;
-      expect(itemProps["id"]!.type).toBe("NUMBER");
+      expect(must(itemProps["id"]).type).toBe("NUMBER");
     });
 
     it("transforms anyOf schemas", () => {
@@ -823,8 +830,8 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const anyOf = result.anyOf as Array<Record<string, string>>;
-      expect(anyOf[0]!.type).toBe("STRING");
-      expect(anyOf[1]!.type).toBe("NUMBER");
+      expect(must(anyOf[0]).type).toBe("STRING");
+      expect(must(anyOf[1]).type).toBe("NUMBER");
     });
 
     it("transforms oneOf schemas", () => {
@@ -836,8 +843,8 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const oneOf = result.oneOf as Array<Record<string, string>>;
-      expect(oneOf[0]!.type).toBe("BOOLEAN");
-      expect(oneOf[1]!.type).toBe("STRING");
+      expect(must(oneOf[0]).type).toBe("BOOLEAN");
+      expect(must(oneOf[1]).type).toBe("STRING");
     });
 
     it("transforms allOf schemas", () => {
@@ -849,11 +856,11 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const allOf = result.allOf as Array<Record<string, unknown>>;
-      expect(allOf[0]!.type).toBe("OBJECT");
-      const props0 = allOf[0]!.properties as Record<string, Record<string, string>>;
-      expect(props0["a"]!.type).toBe("STRING");
-      const props1 = allOf[1]!.properties as Record<string, Record<string, string>>;
-      expect(props1["b"]!.type).toBe("NUMBER");
+      expect(must(allOf[0]).type).toBe("OBJECT");
+      const props0 = must(allOf[0]).properties as Record<string, Record<string, string>>;
+      expect(must(props0["a"]).type).toBe("STRING");
+      const props1 = must(allOf[1]).properties as Record<string, Record<string, string>>;
+      expect(must(props1["b"]).type).toBe("NUMBER");
     });
 
     it("preserves enum values", () => {
@@ -983,20 +990,20 @@ describe("transform/gemini", () => {
       expect(result.type).toBe("OBJECT");
       
       const props = result.properties as Record<string, Record<string, unknown>>;
-      expect(props["event_name"]!.type).toBe("STRING");
-      expect(props["properties"]!.type).toBe("OBJECT");
+      expect(must(props["event_name"]).type).toBe("STRING");
+      expect(must(props["properties"]).type).toBe("OBJECT");
       expect(props["properties"]).not.toHaveProperty("additionalProperties");
-      expect(props["level"]!.type).toBe("STRING");
-      expect(props["level"]!.enum).toEqual(["info", "warning", "error"]);
-      expect(props["items"]!.type).toBe("ARRAY");
+      expect(must(props["level"]).type).toBe("STRING");
+      expect(must(props["level"]).enum).toEqual(["info", "warning", "error"]);
+      expect(must(props["items"]).type).toBe("ARRAY");
       
-      const itemsSchema = props["items"]!.items as Record<string, unknown>;
+      const itemsSchema = must(props["items"]).items as Record<string, unknown>;
       expect(itemsSchema.type).toBe("OBJECT");
       expect(itemsSchema).not.toHaveProperty("additionalProperties");
       
       const itemProps = itemsSchema.properties as Record<string, Record<string, string>>;
-      expect(itemProps["id"]!.type).toBe("STRING");
-      expect(itemProps["value"]!.type).toBe("NUMBER");
+      expect(must(itemProps["id"]).type).toBe("STRING");
+      expect(must(itemProps["value"]).type).toBe("NUMBER");
       
       // Should preserve required
       expect(result.required).toEqual(["event_name"]);
@@ -1031,8 +1038,8 @@ describe("transform/gemini", () => {
       
       expect(schema.type).toBe("OBJECT");
       const props = schema.properties as Record<string, Record<string, string>>;
-      expect(props["name"]!.type).toBe("STRING");
-      expect(props["count"]!.type).toBe("NUMBER");
+      expect(must(props["name"]).type).toBe("STRING");
+      expect(must(props["count"]).type).toBe("NUMBER");
     });
 
     it("removes additionalProperties from tool schemas", () => {
@@ -1076,7 +1083,7 @@ describe("transform/gemini", () => {
       expect(params.type).toBe("OBJECT");
       
       const props = params.properties as Record<string, Record<string, string>>;
-      expect(props["_placeholder"]!.type).toBe("BOOLEAN");
+      expect(must(props["_placeholder"]).type).toBe("BOOLEAN");
     });
   });
 
@@ -1099,11 +1106,11 @@ describe("transform/gemini", () => {
       expect(tools[0]).toHaveProperty("functionDeclarations");
       expect(tools[0]).not.toHaveProperty("parameters");
       
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
       expect(decls).toHaveLength(1);
-      expect(decls[0]!.name).toBe("read_file");
-      expect(decls[0]!.description).toBe("Read a file");
-      expect(decls[0]!.parameters).toEqual({ type: "OBJECT", properties: { path: { type: "STRING" } } });
+      expect(must(decls[0]).name).toBe("read_file");
+      expect(must(decls[0]).description).toBe("Read a file");
+      expect(must(decls[0]).parameters).toEqual({ type: "OBJECT", properties: { path: { type: "STRING" } } });
     });
 
     it("extracts schema from function.input_schema", () => {
@@ -1122,9 +1129,9 @@ describe("transform/gemini", () => {
       wrapToolsAsFunctionDeclarations(payload);
       
       const tools = payload.tools as Array<Record<string, unknown>>;
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
-      expect(decls[0]!.name).toBe("test_fn");
-      expect(decls[0]!.parameters).toEqual({ type: "OBJECT", properties: {} });
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
+      expect(must(decls[0]).name).toBe("test_fn");
+      expect(must(decls[0]).parameters).toEqual({ type: "OBJECT", properties: {} });
     });
 
     it("extracts schema from custom.input_schema", () => {
@@ -1143,9 +1150,9 @@ describe("transform/gemini", () => {
       wrapToolsAsFunctionDeclarations(payload);
       
       const tools = payload.tools as Array<Record<string, unknown>>;
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
-      expect(decls[0]!.name).toBe("custom_fn");
-      expect(decls[0]!.parameters).toEqual({ type: "OBJECT", properties: { x: { type: "NUMBER" } } });
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
+      expect(must(decls[0]).name).toBe("custom_fn");
+      expect(must(decls[0]).parameters).toEqual({ type: "OBJECT", properties: { x: { type: "NUMBER" } } });
     });
 
     it("preserves googleSearch tools as passthrough (new API)", () => {
@@ -1216,10 +1223,10 @@ describe("transform/gemini", () => {
       
       const tools = payload.tools as Array<Record<string, unknown>>;
       expect(tools).toHaveLength(1);
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
       expect(decls).toHaveLength(2);
-      expect(decls[0]!.name).toBe("existing");
-      expect(decls[1]!.name).toBe("new_tool");
+      expect(must(decls[0]).name).toBe("existing");
+      expect(must(decls[1]).name).toBe("new_tool");
     });
 
     it("handles multiple tools correctly", () => {
@@ -1235,7 +1242,7 @@ describe("transform/gemini", () => {
       
       const tools = payload.tools as Array<Record<string, unknown>>;
       expect(tools).toHaveLength(1);
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
       expect(decls).toHaveLength(3);
       expect(decls.map(d => d.name)).toEqual(["tool1", "tool2", "tool3"]);
     });
@@ -1248,8 +1255,8 @@ describe("transform/gemini", () => {
       wrapToolsAsFunctionDeclarations(payload);
       
       const tools = payload.tools as Array<Record<string, unknown>>;
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
-      expect(decls[0]!.parameters).toEqual({ type: "OBJECT", properties: {} });
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
+      expect(must(decls[0]).parameters).toEqual({ type: "OBJECT", properties: {} });
     });
 
     it("generates default name when missing", () => {
@@ -1260,8 +1267,8 @@ describe("transform/gemini", () => {
       wrapToolsAsFunctionDeclarations(payload);
       
       const tools = payload.tools as Array<Record<string, unknown>>;
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
-      expect(decls[0]!.name).toBe("tool-0");
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
+      expect(must(decls[0]).name).toBe("tool-0");
     });
 
     it("does nothing when tools is empty", () => {
@@ -1295,7 +1302,7 @@ describe("transform/gemini", () => {
       const items = result.items as Record<string, unknown>;
       expect(items.type).toBe("OBJECT");
       const props = items.properties as Record<string, Record<string, string>>;
-      expect(props["id"]!.type).toBe("STRING");
+      expect(must(props["id"]).type).toBe("STRING");
     });
 
     it("handles nested array without items", () => {
@@ -1307,8 +1314,8 @@ describe("transform/gemini", () => {
       };
       const result = toGeminiSchema(schema) as Record<string, unknown>;
       const props = result.properties as Record<string, Record<string, unknown>>;
-      expect(props["tags"]!.type).toBe("ARRAY");
-      expect(props["tags"]!.items).toEqual({ type: "STRING" });
+      expect(must(props["tags"]).type).toBe("ARRAY");
+      expect(must(props["tags"]).items).toEqual({ type: "STRING" });
     });
   });
 
@@ -1454,9 +1461,9 @@ describe("transform/gemini", () => {
       expect(result.required).toEqual(["name"]);
       
       const props = result.properties as Record<string, Record<string, unknown>>;
-      expect(props["name"]!.type).toBe("STRING");
+      expect(must(props["name"]).type).toBe("STRING");
       expect(props["name"]).not.toHaveProperty("const");
-      expect(props["data"]!.type).toBe("ARRAY");
+      expect(must(props["data"]).type).toBe("ARRAY");
       expect(props["data"]).not.toHaveProperty("minContains");
       expect(props["data"]).not.toHaveProperty("maxContains");
     });
@@ -1485,13 +1492,13 @@ describe("transform/gemini", () => {
       expect(tools[0]).not.toHaveProperty("function");
       expect(tools[0]).not.toHaveProperty("parameters");
       
-      const decls = tools[0]!.functionDeclarations as Array<Record<string, unknown>>;
-      expect(decls[0]!.name).toBe("test_tool");
+      const decls = must(tools[0]).functionDeclarations as Array<Record<string, unknown>>;
+      expect(must(decls[0]).name).toBe("test_tool");
       
-      const params = decls[0]!.parameters as Record<string, unknown>;
+      const params = must(decls[0]).parameters as Record<string, unknown>;
       expect(params.type).toBe("OBJECT");
       const props = params.properties as Record<string, Record<string, string>>;
-      expect(props["x"]!.type).toBe("STRING");
+      expect(must(props["x"]).type).toBe("STRING");
     });
 
     it("handles mixed tools and googleSearch", () => {

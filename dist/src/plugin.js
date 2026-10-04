@@ -1,10 +1,11 @@
-import { exec, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { tool } from "@opencode-ai/plugin";
 import { ANTIGRAVITY_DEFAULT_PROJECT_ID, ANTIGRAVITY_ENDPOINT_FALLBACKS, ANTIGRAVITY_ENDPOINT_PROD, ANTIGRAVITY_PROVIDER_ID, getAntigravityHeaders, } from "./constants";
 import { authorizeAntigravity, exchangeAntigravity } from "./antigravity/oauth";
 import { accessTokenExpired, isOAuthAuth, parseRefreshParts, formatRefreshParts } from "./plugin/auth";
 import { promptAddAnotherAccount, promptLoginMode, promptProjectId } from "./plugin/cli";
-import { ensureProjectContext, invalidateProjectContext, loadManagedProject, onboardManagedProject } from "./plugin/project";
+import { ensureProjectContext, invalidateProjectContext, onboardManagedProject } from "./plugin/project";
 import { startAntigravityDebugRequest, logAntigravityDebugResponse, logAccountContext, logRateLimitEvent, logRateLimitSnapshot, logResponseBody, logModelFamily, isDebugEnabled, getLogFilePath, initializeDebug, } from "./plugin/debug";
 import { buildThinkingWarmupBody, isGenerativeLanguageRequest, prepareAntigravityRequest, transformAntigravityResponse, } from "./plugin/request";
 import { resolveModelWithTier } from "./plugin/transform/model-resolver";
@@ -28,11 +29,6 @@ import { executeSearch } from "./plugin/search";
 const MAX_OAUTH_ACCOUNTS = 10;
 const MAX_WARMUP_SESSIONS = 1000;
 const MAX_WARMUP_RETRIES = 2;
-const CAPACITY_BACKOFF_TIERS_MS = [5000, 10000, 20000, 30000, 60000];
-function getCapacityBackoffDelay(consecutiveFailures) {
-    const index = Math.min(consecutiveFailures, CAPACITY_BACKOFF_TIERS_MS.length - 1);
-    return CAPACITY_BACKOFF_TIERS_MS[Math.max(0, index)] ?? 5000;
-}
 const warmupAttemptedSessionIds = new Set();
 const warmupSucceededSessionIds = new Set();
 // Track if this plugin instance is running in a child session (subagent, background task)
@@ -148,7 +144,6 @@ function isWSL() {
     if (process.platform !== "linux")
         return false;
     try {
-        const { readFileSync } = require("node:fs");
         const release = readFileSync("/proc/version", "utf8").toLowerCase();
         return release.includes("microsoft") || release.includes("wsl");
     }
@@ -160,7 +155,6 @@ function isWSL2() {
     if (!isWSL())
         return false;
     try {
-        const { readFileSync } = require("node:fs");
         const version = readFileSync("/proc/version", "utf8").toLowerCase();
         return version.includes("wsl2") || version.includes("microsoft-standard");
     }
@@ -205,7 +199,9 @@ async function openBrowser(url) {
                 child.unref();
                 return true;
             }
-            catch { }
+            catch (error) {
+                void error;
+            }
         }
         if (!process.env.DISPLAY && !process.env.WAYLAND_DISPLAY) {
             return false;
@@ -281,7 +277,8 @@ function extractVerificationErrorDetails(bodyText) {
         try {
             payloads.push(JSON.parse(trimmed));
         }
-        catch {
+        catch (error) {
+            void error;
         }
     }
     for (const rawLine of decodedBody.split("\n")) {
@@ -433,8 +430,8 @@ async function verifyAccountAccess(account, client, providerId) {
     try {
         responseBody = await response.text();
     }
-    catch {
-        responseBody = "";
+    catch (error) {
+        void error;
     }
     if (response.ok) {
         return { status: "ok", message: "Account verification check passed." };
@@ -741,7 +738,11 @@ function parseDurationToMs(duration) {
     // Handle simple formats first for backwards compatibility
     const simpleMatch = duration.match(/^(\d+(?:\.\d+)?)(ms|s|m|h)?$/i);
     if (simpleMatch) {
-        const value = parseFloat(simpleMatch[1]);
+        const valueText = simpleMatch[1];
+        if (valueText === undefined) {
+            return null;
+        }
+        const value = parseFloat(valueText);
         const unit = (simpleMatch[2] || "s").toLowerCase();
         switch (unit) {
             case "h": return value * 3600 * 1000;
@@ -758,8 +759,13 @@ function parseDurationToMs(duration) {
     let match;
     while ((match = compoundRegex.exec(duration)) !== null) {
         matchFound = true;
-        const value = parseFloat(match[1]);
-        const unit = match[2].toLowerCase();
+        const valueText = match[1];
+        const unitText = match[2];
+        if (valueText === undefined || unitText === undefined) {
+            continue;
+        }
+        const value = parseFloat(valueText);
+        const unit = unitText.toLowerCase();
         switch (unit) {
             case "h":
                 totalMs += value * 3600 * 1000;
@@ -776,6 +782,20 @@ function parseDurationToMs(duration) {
         }
     }
     return matchFound ? totalMs : null;
+}
+function getRecoveryOriginalMessage(error, fallback) {
+    if (typeof error !== "object" || error === null || !("originalError" in error)) {
+        return fallback;
+    }
+    const original = error.originalError;
+    if (typeof original !== "object" || original === null || !("error" in original)) {
+        return fallback;
+    }
+    const nested = original.error;
+    if (typeof nested !== "object" || nested === null || !("message" in nested) || typeof nested.message !== "string") {
+        return fallback;
+    }
+    return nested.message;
 }
 function extractRateLimitBodyInfo(body) {
     if (!body || typeof body !== "object") {
@@ -952,18 +972,7 @@ function resetRateLimitState(accountIndex, quotaKey) {
     const stateKey = `${accountIndex}:${quotaKey}`;
     rateLimitStateByAccountQuota.delete(stateKey);
 }
-/**
- * Reset all rate limit state for an account (all quotas).
- * Used when account is completely healthy.
- */
-function resetAllRateLimitStateForAccount(accountIndex) {
-    for (const key of rateLimitStateByAccountQuota.keys()) {
-        if (key.startsWith(`${accountIndex}:`)) {
-            rateLimitStateByAccountQuota.delete(key);
-        }
-    }
-}
-function headerStyleToQuotaKey(headerStyle, family) {
+function headerStyleToQuotaKey(_headerStyle, family) {
     if (family === "claude")
         return "claude";
     return "gemini-antigravity";
@@ -1058,7 +1067,9 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
     try {
         ensureAntigravityQuotaCommand();
     }
-    catch { }
+    catch (error) {
+        void error;
+    }
     if (config.safety_level === "none") {
         log.warn("[antigravity-auth] DISCLAIMER: 'safety_level' is configured as 'none'. External safety filters and jailbreak classifiers are disabled. Use at your own discretion. You assume all responsibility for potential account scrutiny or suspensions by Google.");
     }
@@ -1169,7 +1180,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
     const antigravityQuotaTool = tool({
         description: "Get antigravity quota for all accounts",
         args: {},
-        async execute(_args, _ctx) {
+        async execute() {
             log.debug("Antigravity Quota tool called");
             try {
                 const storage = await loadAccounts();
@@ -1206,10 +1217,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                     }
                     return {};
                 }
-                // Validate that stored accounts are in sync with OpenCode's auth
-                // If OpenCode's refresh token doesn't match any stored account, clear stale storage
-                const authParts = parseRefreshParts(auth.refresh);
-                const storedAccounts = await loadAccounts();
                 // Note: AccountManager now ensures the current auth is always included in accounts
                 const accountManager = await AccountManager.loadFromDisk(auth);
                 activeAccountManager = accountManager;
@@ -1217,9 +1224,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                     accountManager.requestSaveToDisk();
                 }
                 // Initialize proactive token refresh queue (ported from LLM-API-Key-Proxy)
-                let refreshQueue = null;
                 if (config.proactive_token_refresh && accountManager.getAccountCount() > 0) {
-                    refreshQueue = createProactiveRefreshQueue(client, providerId, {
+                    const refreshQueue = createProactiveRefreshQueue(client, providerId, {
                         enabled: config.proactive_token_refresh,
                         bufferSeconds: config.proactive_refresh_buffer_seconds,
                         checkIntervalSeconds: config.proactive_refresh_check_interval_seconds,
@@ -1321,13 +1327,12 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                             // Check for abort at the start of each iteration
                             checkAborted();
                             const accountCount = accountManager.getAccountCount();
-                            const routingDecision = resolveHeaderRoutingDecision(urlString, family, config);
                             const preferredHeaderStyle = "antigravity";
                             if (accountCount === 0) {
                                 throw new Error("No Antigravity accounts available. Run `opencode auth login`.");
                             }
                             const softQuotaCacheTtlMs = computeSoftQuotaCacheTtlMs(config.soft_quota_cache_ttl_minutes, config.quota_refresh_interval_minutes);
-                            let account = accountManager.getCurrentOrNextForFamily(family, model, config.account_selection_strategy, preferredHeaderStyle, config.pid_offset_enabled, config.soft_quota_threshold_percent, softQuotaCacheTtlMs);
+                            const account = accountManager.getCurrentOrNextForFamily(family, model, config.account_selection_strategy, preferredHeaderStyle, config.pid_offset_enabled, config.soft_quota_threshold_percent, softQuotaCacheTtlMs);
                             if (!account) {
                                 if (accountManager.areAllAccountsOverSoftQuota(family, config.soft_quota_threshold_percent, softQuotaCacheTtlMs, model)) {
                                     const threshold = config.soft_quota_threshold_percent;
@@ -1340,7 +1345,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             `Quota resets in ${waitTimeFormatted}. ` +
                                             `Add more accounts, wait for quota reset, or set soft_quota_threshold_percent: 100 to disable.`);
                                     }
-                                    const waitSecValue = Math.max(1, Math.ceil(softQuotaWaitMs / 1000));
                                     pushDebug(`all-over-soft-quota family=${family} accounts=${accountCount} waitMs=${softQuotaWaitMs}`);
                                     if (!softQuotaToastShown) {
                                         await showToast(`All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(softQuotaWaitMs)}...`, "warning");
@@ -1468,7 +1472,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             catch (storeError) {
                                                 log.error("Failed to clear stored Antigravity OAuth credentials", { error: String(storeError) });
                                             }
-                                            throw new Error("All Antigravity accounts have invalid refresh tokens. Run `opencode auth login` and reauthenticate.");
+                                            throw new Error("All Antigravity accounts have invalid refresh tokens. Run `opencode auth login` and reauthenticate.", { cause: error });
                                         }
                                         lastError = error;
                                         continue;
@@ -1567,7 +1571,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                             // - Models with antigravity- prefix -> use Antigravity quota
                             // - Gemini models without explicit prefix -> follow cli_first
                             // - Claude models -> always use Antigravity
-                            let headerStyle = preferredHeaderStyle;
+                            const headerStyle = preferredHeaderStyle;
                             pushDebug(`headerStyle=${headerStyle}`);
                             if (account.fingerprint) {
                                 pushDebug(`fingerprint: quotaUser=${account.fingerprint.quotaUser} deviceId=${account.fingerprint.deviceId.slice(0, 8)}...`);
@@ -1648,7 +1652,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 tokenConsumed = false;
                                             }
                                             const defaultRetryMs = (config.default_retry_after_seconds ?? 60) * 1000;
-                                            const maxBackoffMs = (config.max_backoff_seconds ?? 60) * 1000;
                                             const headerRetryMs = retryAfterMsFromResponse(response, defaultRetryMs);
                                             const bodyInfo = await extractRetryInfoFromBody(response);
                                             const serverRetryMs = bodyInfo.retryDelayMs ?? headerRetryMs;
@@ -1692,7 +1695,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             // Goal: Lock and Rotate (Standard Logic)
                                             // Only now do we call getRateLimitBackoff, which increments the global failure tracker
                                             const quotaKey = headerStyleToQuotaKey(headerStyle, family);
-                                            const { attempt, delayMs, isDuplicate } = getRateLimitBackoff(account.index, quotaKey, serverRetryMs);
+                                            const { attempt, delayMs } = getRateLimitBackoff(account.index, quotaKey, serverRetryMs);
                                             // Calculate potential backoffs
                                             const smartBackoffMs = calculateBackoffMs(rateLimitReason, account.consecutiveFailures ?? 0, serverRetryMs);
                                             const effectiveDelayMs = Math.max(delayMs, smartBackoffMs);
@@ -1709,7 +1712,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             logRateLimitEvent(account.index, account.email, family, response.status, effectiveDelayMs, bodyInfo);
                                             await logResponseBody(debugContext, response, 429);
                                             getHealthTracker().recordRateLimit(account.index, account.email);
-                                            const accountLabel = account.email || `Account ${account.index + 1}`;
                                             // Extract absolute timestamp if provided by Google RPC metadata
                                             let absoluteResetAtMs = null;
                                             if (bodyInfo.quotaResetTime) {
@@ -1765,7 +1767,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     break;
                                                 }
                                             }
-                                            const quotaName = "Antigravity";
                                             if (accountCount > 1) {
                                                 const quotaMsg = bodyInfo.quotaResetTime
                                                     ? ` (resets ${bodyInfo.quotaResetTime})`
@@ -1968,9 +1969,7 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 continue;
                                             }
                                             // Already tried with forced recovery, give up and return error
-                                            const recoveryError = error;
-                                            const originalError = recoveryError.originalError || { error: { message: "Thinking recovery triggered" } };
-                                            const recoveryMessage = `${originalError.error?.message || "Session recovery failed"}\n\n[RECOVERY] Thinking block corruption could not be resolved. Try starting a new session.`;
+                                            const recoveryMessage = `${getRecoveryOriginalMessage(error, "Session recovery failed")}\n\n[RECOVERY] Thinking block corruption could not be resolved. Try starting a new session.`;
                                             return new Response(JSON.stringify({
                                                 type: "error",
                                                 error: {
@@ -1991,9 +1990,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 continue;
                                             }
                                             // Already retried with sanitization - surface the error clearly
-                                            const recoveryError = error;
-                                            const originalError = recoveryError.originalError || { error: { message: "History ends with a model turn" } };
-                                            const rawMessage = originalError.error?.message || "History ends with a model turn";
                                             const recoveryMessage = `Requests ending with a model turn are not supported.\n\n[RECOVERY] Conversation history still ends with an unresolved tool call.\n` +
                                                 `Use /undo to remove the last incomplete tool turn, or start a new session.`;
                                             return new Response(JSON.stringify({
@@ -2063,11 +2059,10 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                             const existingStorage = await loadAccounts();
                             if (existingStorage && existingStorage.accounts.length > 0) {
                                 let menuResult;
-                                let cumulativeBlockedWaitMs = 0;
                                 while (true) {
                                     const now = Date.now();
                                     const existingAccounts = existingStorage.accounts.map((acc, idx) => {
-                                        let status = 'unknown';
+                                        let status;
                                         if (acc.verificationRequired) {
                                             status = 'verification-required';
                                         }
@@ -2158,9 +2153,10 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                 });
                                             }
                                             else if (res.models && res.models.length > 0) {
+                                                const quotaModels = res.models;
                                                 console.log(`\n  ┌─ Available Models Quota`);
-                                                res.models.forEach((m, idx) => {
-                                                    const isLast = idx === res.models.length - 1;
+                                                quotaModels.forEach((m, idx) => {
+                                                    const isLast = idx === quotaModels.length - 1;
                                                     const connector = isLast ? "└─" : "├─";
                                                     const bar = createProgressBar(m.remainingFraction);
                                                     const reset = ` (resets in ${m.timeUntilResetFormatted})`;
@@ -2398,7 +2394,6 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                     refreshAccountIndex = menuResult.refreshAccountIndex;
                                     const refreshEmail = existingStorage.accounts[refreshAccountIndex]?.email;
                                     console.log(`\nRe-authenticating ${refreshEmail || 'account'}...\n`);
-                                    startFresh = false;
                                 }
                                 if (menuResult.deleteAll) {
                                     await clearAccounts();
@@ -2469,7 +2464,9 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     try {
                                                         await listener.close();
                                                     }
-                                                    catch { }
+                                                    catch (error) {
+                                                        void error;
+                                                    }
                                                     return promptManualOAuthInput(fallbackState);
                                                 }
                                                 throw err;
@@ -2496,7 +2493,9 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             try {
                                                 await listener.close();
                                             }
-                                            catch { }
+                                            catch (error) {
+                                                void error;
+                                            }
                                         }
                                     }
                                     return promptManualOAuthInput(fallbackState);
@@ -2522,7 +2521,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         },
                                     });
                                 }
-                                catch {
+                                catch (error) {
+                                    void error;
                                 }
                                 try {
                                     if (refreshAccountIndex !== undefined) {
@@ -2553,7 +2553,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         await persistAccountPool([result], isFirstAccount && startFresh);
                                     }
                                 }
-                                catch {
+                                catch (error) {
+                                    void error;
                                 }
                                 if (refreshAccountIndex !== undefined) {
                                     break;
@@ -2593,7 +2594,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                     actualAccountCount = finalStorage.accounts.length;
                                 }
                             }
-                            catch {
+                            catch (error) {
+                                void error;
                             }
                             const successMessage = refreshAccountIndex !== undefined
                                 ? `Token refreshed successfully.`
@@ -2663,7 +2665,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                             try {
                                                 await persistAccountPool([result], false);
                                             }
-                                            catch {
+                                            catch (error) {
+                                                void error;
                                             }
                                             const newTotal = existingCount + 1;
                                             const toastMessage = existingCount > 0
@@ -2677,7 +2680,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                                     },
                                                 });
                                             }
-                                            catch {
+                                            catch (error) {
+                                                void error;
                                             }
                                         }
                                         return result;
@@ -2692,7 +2696,8 @@ export const createAntigravityPlugin = (providerId) => async ({ client, director
                                         try {
                                             await listener.close();
                                         }
-                                        catch {
+                                        catch (error) {
+                                            void error;
                                         }
                                     }
                                 },
@@ -2773,11 +2778,11 @@ function toWarmupStreamUrl(value) {
     }
 }
 function extractModelFromUrl(urlString) {
-    const match = urlString.match(/\/models\/([^:\/?]+)(?::\w+)?/);
+    const match = urlString.match(/\/models\/([^:/?]+)(?::\w+)?/);
     return match?.[1] ?? null;
 }
 function extractModelFromUrlWithSuffix(urlString) {
-    const match = urlString.match(/\/models\/([^:\/\?]+)/);
+    const match = urlString.match(/\/models\/([^:/?]+)/);
     return match?.[1] ?? null;
 }
 function getModelFamilyFromUrl(urlString) {
@@ -2815,6 +2820,9 @@ function getCliFirst(config) {
     return config.cli_first ?? false;
 }
 function getHeaderStyleFromUrl(urlString, family, cliFirst = false) {
+    void urlString;
+    void family;
+    void cliFirst;
     return "antigravity";
 }
 function isExplicitQuotaFromUrl(urlString) {

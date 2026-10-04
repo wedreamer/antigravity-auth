@@ -99,12 +99,20 @@ describe("ProactiveRefreshQueue", () => {
 
       // Set account to expire soon
       const accounts = manager.getAccounts();
-      accounts[0]!.expires = now + 1000 * 60 * 10; // 10 minutes from now
+      const account0 = accounts[0];
+      if (!account0) {
+        throw new Error("expected account 0");
+      }
+      account0.expires = now + 1000 * 60 * 10; // 10 minutes from now
 
       const needsRefresh = queue.getAccountsNeedingRefresh();
 
       expect(needsRefresh.length).toBe(1);
-      expect(needsRefresh[0]!.index).toBe(0);
+      const needingRefresh = needsRefresh[0];
+      if (!needingRefresh) {
+        throw new Error("expected account needing refresh");
+      }
+      expect(needingRefresh.index).toBe(0);
     });
 
     it("skips expired accounts", () => {
@@ -133,7 +141,11 @@ describe("ProactiveRefreshQueue", () => {
 
       // Set account to already expired
       const accounts = manager.getAccounts();
-      accounts[0]!.expires = now - 1000; // 1 second ago
+      const account0 = accounts[0];
+      if (!account0) {
+        throw new Error("expected account 0");
+      }
+      account0.expires = now - 1000; // 1 second ago
 
       const needsRefresh = queue.getAccountsNeedingRefresh();
 
@@ -166,7 +178,11 @@ describe("ProactiveRefreshQueue", () => {
 
       // Set account to expire in 1 hour (outside 30 min buffer)
       const accounts = manager.getAccounts();
-      accounts[0]!.expires = now + 1000 * 60 * 60; // 1 hour from now
+      const account0 = accounts[0];
+      if (!account0) {
+        throw new Error("expected account 0");
+      }
+      account0.expires = now + 1000 * 60 * 60; // 1 hour from now
 
       const needsRefresh = queue.getAccountsNeedingRefresh();
 

@@ -103,7 +103,9 @@ export function transformStreamingPayload(
             : parsed.response;
           return `data: ${JSON.stringify(transformed)}`;
         }
-      } catch (_) {}
+      } catch (error) {
+        void error;
+      }
       return line;
     })
     .join('\n');
@@ -277,7 +279,7 @@ export function transformSseLine(
           for (const candidate of respObj.candidates) {
             const cand = candidate as Record<string, unknown> | null;
             if (cand && Array.isArray(cand.safetyRatings) && cand.safetyRatings.length > 0) {
-              callbacks.onSafetyRatings(cand.safetyRatings as any);
+              callbacks.onSafetyRatings(cand.safetyRatings as SafetyRating[]);
               break;
             }
           }
@@ -289,7 +291,9 @@ export function transformSseLine(
         : response;
       return `data: ${JSON.stringify(transformed)}`;
     }
-  } catch (_) {}
+  } catch (error) {
+    void error;
+  }
   return line;
 }
 

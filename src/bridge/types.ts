@@ -1,5 +1,5 @@
-import type { Fingerprint } from "../plugin/fingerprint.ts"
-import type { ManagedAccount } from "../plugin/accounts.ts"
+import type { Fingerprint } from "../plugin/fingerprint"
+import type { ManagedAccount } from "../plugin/accounts"
 
 export interface OpenAITool {
   type?: string

@@ -408,14 +408,14 @@ export function applyGeminiTransforms(
   // Note: The old googleSearchRetrieval with dynamicRetrievalConfig is deprecated
   // The new API doesn't support threshold - the model decides when to search automatically
   if (googleSearch && googleSearch.mode === 'auto') {
-    const tools = (payload.tools as unknown[]) || [];
+    const tools: unknown[] = Array.isArray(payload.tools) ? payload.tools : [];
     if (!payload.tools) {
       payload.tools = tools;
     }
 
     // Add Google Search tool using new API format for Gemini 2.0+
     // See: https://ai.google.dev/gemini-api/docs/grounding
-    (payload.tools as any[]).push({
+    tools.push({
       googleSearch: {},
     });
   }

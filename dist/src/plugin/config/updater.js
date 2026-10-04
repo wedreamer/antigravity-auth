@@ -10,7 +10,8 @@ import { OPENCODE_MODEL_DEFINITIONS, OPENCODE_WHITELIST_MODELS } from "./models.
 // =============================================================================
 // Constants
 // =============================================================================
-const PLUGIN_NAME = "opencode-antigravity-auth@latest";
+const PLUGIN_NAME = "antigravity-auth@latest";
+const PLUGIN_IDS = ["antigravity-auth", "opencode-antigravity-auth"];
 const SCHEMA_URL = "https://opencode.ai/config.json";
 const OPENCODE_JSON_FILENAME = "opencode.json";
 const OPENCODE_JSONC_FILENAME = "opencode.jsonc";
@@ -44,7 +45,7 @@ Ejecuta la actualización del plugin de Antigravity en este entorno:
 1. Si el plugin está cargado como ruta local (ej. en /root/proyectos/opencode-antigravity-auth):
    - Ve a ese directorio, haz \`git pull origin main\`, y luego compila con \`npm run build\`.
    - Muestra la versión actualizada resultante de package.json.
-2. Si está cargado desde GitHub (\`github:JoshRob297/opencode-antigravity-auth\`):
+2. Si está cargado desde GitHub (\`github:wedreamer/opencode-antigravity-auth\`):
    - Informa al usuario que reinicie OpenCode para descargar la última versión de GitHub o limpia la caché con rm -rf ~/.cache/opencode/.
 `;
 /**
@@ -149,7 +150,7 @@ export async function updateOpencodeConfig(options = {}) {
             config.plugin = [];
         }
         // Check if plugin is already in the list (any version)
-        const hasPlugin = config.plugin.some((p) => p.includes("opencode-antigravity-auth"));
+        const hasPlugin = config.plugin.some((p) => PLUGIN_IDS.some((id) => p.includes(id)));
         if (!hasPlugin) {
             config.plugin.push(PLUGIN_NAME);
         }

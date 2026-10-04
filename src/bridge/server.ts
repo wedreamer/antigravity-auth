@@ -1,8 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
 
-import { BridgeError, completeChat, type CompleteDeps } from "./complete.ts"
-import { BRIDGE_MODELS, openAIChunk, openAICompletion } from "./openai.ts"
-import type { ChatRequest } from "./types.ts"
+import { BridgeError, completeChat, type CompleteDeps } from "./complete"
+import { BRIDGE_MODELS, openAIChunk, openAICompletion } from "./openai"
+import type { ChatRequest } from "./types"
 
 export interface ListenOptions {
   port: number

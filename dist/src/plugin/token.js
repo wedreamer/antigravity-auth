@@ -57,6 +57,8 @@ export class AntigravityTokenRefreshError extends Error {
  * Refreshes an Antigravity OAuth access token, updates persisted credentials, and handles revocation.
  */
 export async function refreshAccessToken(auth, client, providerId) {
+    void client;
+    void providerId;
     const parts = parseRefreshParts(auth.refresh);
     if (!parts.refreshToken) {
         return undefined;

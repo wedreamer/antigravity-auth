@@ -373,12 +373,14 @@ export function formatQuotaReportMarkdown(results) {
                 else if (groupKey.toLowerCase().includes("claude") || groupKey.toLowerCase().includes("gpt")) {
                     groupKey = "Claude & GPT Models (Opus / Sonnet / GPT-OSS)";
                 }
-                if (!groupMap.has(groupKey)) {
-                    groupMap.set(groupKey, []);
+                let groupAccounts = groupMap.get(groupKey);
+                if (!groupAccounts) {
+                    groupAccounts = [];
+                    groupMap.set(groupKey, groupAccounts);
                 }
                 const email = result.email || `account-${result.index + 1}`;
                 const savedHealth = EngineStatsManager.getInstance().getSavedHealthScore(email) ?? 100;
-                groupMap.get(groupKey).push({
+                groupAccounts.push({
                     email,
                     disabled: result.disabled,
                     health: savedHealth,
@@ -430,10 +432,11 @@ export function formatQuotaReportMarkdown(results) {
                 if (lower.includes("claude") || lower.includes("gpt")) {
                     familyName = "Claude Models (Opus / Sonnet)";
                 }
-                if (!familyMap.has(familyName)) {
-                    familyMap.set(familyName, new Map());
+                let accountMap = familyMap.get(familyName);
+                if (!accountMap) {
+                    accountMap = new Map();
+                    familyMap.set(familyName, accountMap);
                 }
-                const accountMap = familyMap.get(familyName);
                 const accKey = result.email || `account-${result.index + 1}`;
                 if (!accountMap.has(accKey)) {
                     accountMap.set(accKey, {

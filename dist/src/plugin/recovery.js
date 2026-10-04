@@ -98,7 +98,7 @@ export function isRecoverableError(error) {
 }
 function extractToolUseIds(parts) {
     return parts
-        .filter((p) => p.type === "tool_use" && !!p.id)
+        .filter((p) => p.type === "tool_use" && typeof p.id === "string")
         .map((p) => p.id);
 }
 // =============================================================================
@@ -168,7 +168,8 @@ async function recoverThinkingBlockOrder(sessionID, _failedMsg, error) {
 /**
  * Recover from thinking_disabled_violation by stripping thinking parts.
  */
-async function recoverThinkingDisabledViolation(sessionID, _failedMsg) {
+async function recoverThinkingDisabledViolation(sessionID, failedMsg) {
+    void failedMsg;
     const messagesWithThinking = findMessagesWithThinkingBlocks(sessionID);
     if (messagesWithThinking.length === 0) {
         return false;
@@ -284,7 +285,6 @@ export function createSessionRecoveryHook(ctx, config) {
         // OpenCode's session.error event may not include messageID
         // In that case, we need to fetch messages and find the latest assistant with error
         let assistantMsgID = info.id;
-        let msgs;
         const log = createLogger("session-recovery");
         log.debug("Recovery attempt started", {
             errorType,
@@ -302,7 +302,7 @@ export function createSessionRecoveryHook(ctx, config) {
             path: { id: sessionID },
             query: { directory },
         });
-        msgs = messagesResp.data;
+        const msgs = messagesResp.data;
         // If messageID wasn't provided, find the latest assistant message with an error
         if (!assistantMsgID && msgs && msgs.length > 0) {
             // Find the last assistant message (most recent is typically last in array)

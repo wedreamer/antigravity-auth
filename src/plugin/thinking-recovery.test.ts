@@ -7,6 +7,25 @@ import {
   needsThinkingRecovery,
 } from "./thinking-recovery";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function messageRole(value: unknown): unknown {
+  return isRecord(value) ? value.role : undefined;
+}
+
+function messagePartText(value: unknown, partIndex = 0): unknown {
+  if (!isRecord(value) || !Array.isArray(value.parts)) return undefined;
+  const part = value.parts[partIndex];
+  return isRecord(part) ? part.text : undefined;
+}
+
+function messageHasThoughtPart(value: unknown): boolean {
+  if (!isRecord(value) || !Array.isArray(value.parts)) return false;
+  return value.parts.some((part) => isRecord(part) && part.thought === true);
+}
+
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 
 function userMsg(text: string) {
@@ -59,7 +78,7 @@ describe("analyzeConversationState", () => {
   });
 
   it("returns default state for non-array input", () => {
-    const state = analyzeConversationState(null as any);
+    const state = analyzeConversationState(null);
     expect(state.inToolLoop).toBe(false);
   });
 
@@ -178,9 +197,9 @@ describe("closeToolLoopForThinking", () => {
     ];
     const result = closeToolLoopForThinking(contents);
     expect(result.length).toBe(5);
-    expect(result[3]?.role).toBe("model");
-    expect(result[4]?.role).toBe("user");
-    expect(result[4]?.parts[0]?.text).toBe("[Continue]");
+    expect(messageRole(result[3])).toBe("model");
+    expect(messageRole(result[4])).toBe("user");
+    expect(messagePartText(result[4])).toBe("[Continue]");
   });
 
   it("strips thinking blocks from prior messages", () => {
@@ -190,11 +209,9 @@ describe("closeToolLoopForThinking", () => {
       toolResultMsg(),
     ];
     const result = closeToolLoopForThinking(contents);
-    const modelMessages = result.filter((m) => m.role === "model");
+    const modelMessages = result.filter((m) => messageRole(m) === "model");
     for (const msg of modelMessages) {
-      const parts: any[] = msg.parts ?? [];
-      const hasThinking = parts.some((p: any) => p?.thought === true);
-      expect(hasThinking).toBe(false);
+      expect(messageHasThoughtPart(msg)).toBe(false);
     }
   });
 
@@ -202,7 +219,7 @@ describe("closeToolLoopForThinking", () => {
     const contents = [userMsg("go"), modelWithToolCall(), toolResultMsg()];
     const result = closeToolLoopForThinking(contents);
     const syntheticModel = result[result.length - 2];
-    expect(syntheticModel?.parts[0]?.text).toBe("[Tool execution completed.]");
+    expect(messagePartText(syntheticModel)).toBe("[Tool execution completed.]");
   });
 
   it("uses plural message for multiple tool results", () => {
@@ -219,14 +236,14 @@ describe("closeToolLoopForThinking", () => {
     ];
     const result = closeToolLoopForThinking(contents);
     const syntheticModel = result[result.length - 2];
-    expect(syntheticModel?.parts[0]?.text).toBe("[2 tool executions completed.]");
+    expect(messagePartText(syntheticModel)).toBe("[2 tool executions completed.]");
   });
 
   it("uses fallback message when no tool results present", () => {
     const contents = [userMsg("go"), modelMsg("working...")];
     const result = closeToolLoopForThinking(contents);
     const syntheticModel = result[result.length - 2];
-    expect(syntheticModel?.parts[0]?.text).toBe("[Processing previous context.]");
+    expect(messagePartText(syntheticModel)).toBe("[Processing previous context.]");
   });
 
   it("does not mutate original contents array", () => {

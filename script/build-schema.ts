@@ -9,7 +9,7 @@ const outputPath = join(__dirname, "../assets/antigravity.schema.json");
 // Use zod v4's built-in toJSONSchema method
 const rawSchema = AntigravityConfigSchema.toJSONSchema({
   unrepresentable: "any",
-  override: (_ctx) => undefined // Use default handling
+  override: () => undefined // Use default handling
 }) as Record<string, unknown>;
 
 // Remove the "required" array since all fields have defaults and are optional

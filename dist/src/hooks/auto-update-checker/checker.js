@@ -3,6 +3,17 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { PACKAGE_NAME, NPM_REGISTRY_URL, NPM_FETCH_TIMEOUT, INSTALLED_PACKAGE_JSON, USER_OPENCODE_CONFIG, USER_OPENCODE_CONFIG_JSONC, } from "./constants";
 import { logAutoUpdate } from "./logging";
+const LEGACY_PACKAGE_NAME = "opencode-antigravity-auth";
+const PACKAGE_NAMES = [LEGACY_PACKAGE_NAME, PACKAGE_NAME];
+function packageNameInEntry(entry) {
+    for (const name of PACKAGE_NAMES) {
+        if (entry === name || entry.startsWith(`${name}@`))
+            return name;
+    }
+    if (!entry.startsWith("file://"))
+        return null;
+    return PACKAGE_NAMES.find((name) => entry.includes(name)) ?? null;
+}
 export function isLocalDevMode(directory) {
     return getLocalDevPath(directory) !== null;
 }
@@ -98,17 +109,18 @@ export function findPluginEntry(directory) {
             const config = JSON.parse(stripJsonComments(content));
             const plugins = config.plugin ?? [];
             for (const entry of plugins) {
-                if (entry === PACKAGE_NAME) {
+                const packageName = packageNameInEntry(entry);
+                if (!packageName)
+                    continue;
+                if (entry === packageName) {
                     return { entry, isPinned: false, pinnedVersion: null, configPath };
                 }
-                if (entry.startsWith(`${PACKAGE_NAME}@`)) {
-                    const pinnedVersion = entry.slice(PACKAGE_NAME.length + 1);
+                if (entry.startsWith(`${packageName}@`)) {
+                    const pinnedVersion = entry.slice(packageName.length + 1);
                     const isPinned = pinnedVersion !== "latest";
                     return { entry, isPinned, pinnedVersion: isPinned ? pinnedVersion : null, configPath };
                 }
-                if (entry.startsWith("file://") && entry.includes(PACKAGE_NAME)) {
-                    return { entry, isPinned: false, pinnedVersion: null, configPath };
-                }
+                return { entry, isPinned: false, pinnedVersion: null, configPath };
             }
         }
         catch {

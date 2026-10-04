@@ -10,6 +10,10 @@ import {
   CLEAN_GUARDRAIL_MESSAGE,
 } from "../core/streaming";
 
+type GuardrailSanitized = {
+  candidates: Array<{ content: { parts: Array<{ text: string }> } }>;
+};
+
 // ─── createSignatureStore ─────────────────────────────────────────────────────
 
 describe("createSignatureStore", () => {
@@ -185,8 +189,8 @@ describe("Guardrail / Safety Filter Sanitization", () => {
       ],
     };
 
-    const sanitized = sanitizeGuardrailMessage(rawResponse) as any;
-    expect(sanitized.candidates[0].content.parts[0].text).toBe(CLEAN_GUARDRAIL_MESSAGE);
+    const sanitized = sanitizeGuardrailMessage(rawResponse) as GuardrailSanitized;
+    expect(sanitized.candidates[0]?.content.parts[0]?.text).toBe(CLEAN_GUARDRAIL_MESSAGE);
   });
 
   it("handles finishReason: SAFETY without content", () => {
@@ -198,7 +202,7 @@ describe("Guardrail / Safety Filter Sanitization", () => {
       ],
     };
 
-    const sanitized = sanitizeGuardrailMessage(rawResponse) as any;
-    expect(sanitized.candidates[0].content.parts[0].text).toBe(CLEAN_GUARDRAIL_MESSAGE);
+    const sanitized = sanitizeGuardrailMessage(rawResponse) as GuardrailSanitized;
+    expect(sanitized.candidates[0]?.content.parts[0]?.text).toBe(CLEAN_GUARDRAIL_MESSAGE);
   });
 });

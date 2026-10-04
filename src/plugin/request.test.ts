@@ -86,7 +86,7 @@ describe("request.ts", () => {
     });
 
     it("returns false for non-string inputs", () => {
-      expect(isGenerativeLanguageRequest({} as any)).toBe(false);
+      expect(isGenerativeLanguageRequest({} as unknown as RequestInfo)).toBe(false);
       expect(isGenerativeLanguageRequest(new Request("https://example.com"))).toBe(false);
     });
   });
@@ -245,7 +245,7 @@ describe("request.ts", () => {
   describe("ensureThoughtSignature", () => {
     it("adds sentinel signature when no cached signature exists", () => {
       const part = { thought: true, text: "thinking..." };
-      const result = ensureThoughtSignature(part, "no-cache-session");
+      const result = ensureThoughtSignature(part, "no-cache-session") as Record<string, unknown>;
       // Now uses sentinel fallback to prevent API rejection
       expect(result.thoughtSignature).toBe("skip_thought_signature_validator");
     });
@@ -253,13 +253,13 @@ describe("request.ts", () => {
     it("keeps a real thoughtSignature instead of the sentinel", () => {
       const existingSignature = "a".repeat(MIN_SIGNATURE_LENGTH + 10);
       const part = { thought: true, text: "thinking...", thoughtSignature: existingSignature };
-      const result = ensureThoughtSignature(part, "session-key");
+      const result = ensureThoughtSignature(part, "session-key") as Record<string, unknown>;
       expect(result.thoughtSignature).toBe(existingSignature);
     });
 
     it("does not modify non-thinking parts", () => {
       const part = { text: "regular text" };
-      const result = ensureThoughtSignature(part, "session-key");
+      const result = ensureThoughtSignature(part, "session-key") as Record<string, unknown>;
       expect(result.thoughtSignature).toBeUndefined();
     });
 

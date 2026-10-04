@@ -1,7 +1,7 @@
-import { prepareAntigravityRequest, transformAntigravityResponse } from "../plugin/request.ts"
-import { extractCompletion, geminiUrl, normalizeModel, toGeminiBody } from "./openai.ts"
-import { refreshAccessToken } from "./pool.ts"
-import type { AccountPool, ChatRequest, CompletionResult, PoolAccount } from "./types.ts"
+import { prepareAntigravityRequest, transformAntigravityResponse } from "../plugin/request"
+import { extractCompletion, geminiUrl, normalizeModel, toGeminiBody } from "./openai"
+import { refreshAccessToken } from "./pool"
+import type { AccountPool, ChatRequest, CompletionResult, PoolAccount } from "./types"
 
 export interface CompleteDeps {
   fetchImpl?: typeof fetch

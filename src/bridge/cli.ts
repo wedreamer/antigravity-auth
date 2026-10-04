@@ -1,9 +1,9 @@
 import { homedir } from "node:os"
 import { resolve } from "node:path"
 
-import { listenBridge } from "./server.ts"
-import { loadAccountPool } from "./pool.ts"
-import { createProxiedFetch, resolveProxy } from "./proxy-fetch.ts"
+import { listenBridge } from "./server"
+import { loadAccountPool } from "./pool"
+import { createProxiedFetch, resolveProxy } from "./proxy-fetch"
 
 function flag(name: string, fallback: string): string {
   const index = process.argv.indexOf(name)

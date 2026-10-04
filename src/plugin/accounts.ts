@@ -183,7 +183,7 @@ function clampNonNegativeInt(value: unknown, fallback: number): number {
   return value < 0 ? 0 : Math.floor(value);
 }
 
-function getQuotaKey(family: ModelFamily, headerStyle: HeaderStyle = "antigravity", model?: string | null): QuotaKey {
+function getQuotaKey(family: ModelFamily, model?: string | null): QuotaKey {
   if (family === "claude") {
     return "claude";
   }
@@ -249,7 +249,7 @@ function isRateLimitedForFamily(
 function isRateLimitedForHeaderStyle(
   account: ManagedAccount,
   family: ModelFamily,
-  headerStyle: HeaderStyle,
+  _headerStyle: HeaderStyle,
   model?: string | null,
   cacheTtlMs: number = DEFAULT_QUOTA_CACHE_TTL_MS,
 ): boolean {
@@ -261,14 +261,14 @@ function isRateLimitedForHeaderStyle(
 
   // Check model-specific quota first if provided
   if (model) {
-    const modelKey = getQuotaKey(family, headerStyle, model);
+    const modelKey = getQuotaKey(family, model);
     if (isRateLimitedForQuotaKey(account, modelKey, family, cacheTtlMs, model)) {
       return true;
     }
   }
 
   // Then check base family quota
-  const baseKey = getQuotaKey(family, headerStyle);
+  const baseKey = getQuotaKey(family);
   return isRateLimitedForQuotaKey(account, baseKey, family, cacheTtlMs, model);
 }
 
@@ -278,7 +278,7 @@ function clearExpiredRateLimits(account: ManagedAccount): void {
   for (const key of keys) {
     const resetTime = account.rateLimitResetTimes[key];
     if (resetTime !== undefined && now >= resetTime) {
-      delete account.rateLimitResetTimes[key];
+      Reflect.deleteProperty(account.rateLimitResetTimes, key);
     }
   }
 }
@@ -369,7 +369,6 @@ export class AccountManager {
   private lastToastTime = 0;
 
   private savePending = false;
-  private saveTimeout: ReturnType<typeof setTimeout> | null = null;
   private savePromiseResolvers: Array<() => void> = [];
 
   static async loadFromDisk(authFallback?: OAuthAuthDetails): Promise<AccountManager> {
@@ -571,7 +570,7 @@ export class AccountManager {
     softQuotaThresholdPercent: number = 100,
     softQuotaCacheTtlMs: number = 10 * 60 * 1000,
   ): ManagedAccount | null {
-    const quotaKey = getQuotaKey(family, headerStyle, model);
+    const quotaKey = getQuotaKey(family, model);
 
     if (strategy === 'round-robin') {
       const next = this.getNextForFamily(family, model, headerStyle, softQuotaThresholdPercent, softQuotaCacheTtlMs);
@@ -678,7 +677,9 @@ export class AccountManager {
     headerStyle: HeaderStyle = "antigravity",
     model?: string | null
   ): void {
-    const key = getQuotaKey(family, headerStyle, model);
+    // Quota keys ignore header style; the parameter stays for positional callers.
+    void headerStyle;
+    const key = getQuotaKey(family, model);
     account.rateLimitResetTimes[key] = nowMs() + retryAfterMs;
     // Keep internal accounts array in sync if account was a cloned snapshot
     const target = this.accounts.find(a => a.index === account.index);
@@ -715,7 +716,7 @@ export class AccountManager {
   markRateLimitedWithReason(
     account: ManagedAccount,
     family: ModelFamily,
-    headerStyle: HeaderStyle,
+    _headerStyle: HeaderStyle,
     model: string | null | undefined,
     reason: RateLimitReason,
     retryAfterMs?: number | null,
@@ -744,7 +745,7 @@ export class AccountManager {
       effectiveWaitMs = Math.min(Math.max(effectiveWaitMs, MIN_BACKOFF_MS), MAX_RPM_RETRY_AFTER_MS);
     }
 
-    const key = getQuotaKey(family, headerStyle, model);
+    const key = getQuotaKey(family, model);
     account.rateLimitResetTimes[key] = now + effectiveWaitMs;
     
     return effectiveWaitMs;
@@ -761,8 +762,8 @@ export class AccountManager {
       if (family === "claude") {
         delete account.rateLimitResetTimes.claude;
       } else {
-        const antigravityKey = getQuotaKey(family, "antigravity", model);
-        delete account.rateLimitResetTimes[antigravityKey];
+        const antigravityKey = getQuotaKey(family, model);
+        Reflect.deleteProperty(account.rateLimitResetTimes, antigravityKey);
       }
       account.consecutiveFailures = 0;
     }
@@ -1074,11 +1075,11 @@ export class AccountManager {
         const t = a.rateLimitResetTimes.claude;
         if (t !== undefined) waitTimes.push(Math.max(0, t - now));
       } else if (strict && headerStyle) {
-        const key = getQuotaKey(family, headerStyle, model);
+        const key = getQuotaKey(family, model);
         const t = a.rateLimitResetTimes[key];
         if (t !== undefined) waitTimes.push(Math.max(0, t - now));
       } else {
-        const antigravityKey = getQuotaKey(family, "antigravity", model);
+        const antigravityKey = getQuotaKey(family, model);
         const t1 = a.rateLimitResetTimes[antigravityKey];
         if (t1 !== undefined) waitTimes.push(Math.max(0, t1 - now));
       }
@@ -1096,6 +1097,8 @@ export class AccountManager {
     model?: string | null,
     headerStyle: HeaderStyle = "antigravity",
   ): Array<{ email: string; reason: string; waitMs: number | null }> {
+    // Quota keys ignore header style; the parameter stays for positional callers.
+    void headerStyle;
     const now = nowMs();
     return this.accounts.map((a, idx) => {
       const label = a.email || `Account ${idx + 1}`;
@@ -1117,10 +1120,10 @@ export class AccountManager {
       }
 
       // Check rate limit reset time
-      const quotaKey = getQuotaKey(family, headerStyle, model);
+      const quotaKey = getQuotaKey(family, model);
       let resetTime = a.rateLimitResetTimes[quotaKey];
       if (family === "gemini" && resetTime === undefined) {
-        const fallbackKey = getQuotaKey(family, "antigravity", model);
+        const fallbackKey = getQuotaKey(family, model);
         resetTime = a.rateLimitResetTimes[fallbackKey];
       }
 
@@ -1190,7 +1193,7 @@ export class AccountManager {
       return;
     }
     this.savePending = true;
-    this.saveTimeout = setTimeout(() => {
+    setTimeout(() => {
       void this.executeSave();
     }, 1000);
   }
@@ -1206,7 +1209,6 @@ export class AccountManager {
 
   private async executeSave(): Promise<void> {
     this.savePending = false;
-    this.saveTimeout = null;
     
     try {
       await this.saveToDisk();
@@ -1276,7 +1278,11 @@ export class AccountManager {
     }
     
     // Capture the fingerprint to restore BEFORE modifying history
-    const fingerprintToRestore = history[historyIndex]!.fingerprint;
+    const historyEntryToRestore = history[historyIndex];
+    if (!historyEntryToRestore) {
+      return null;
+    }
+    const fingerprintToRestore = historyEntryToRestore.fingerprint;
     
     // Save current fingerprint to history before restoring (if it exists)
     if (account.fingerprint) {
@@ -1286,11 +1292,11 @@ export class AccountManager {
         reason: 'restored',
       };
       
-      account.fingerprintHistory!.unshift(historyEntry);
+      history.unshift(historyEntry);
       
       // Trim to max history size
-      if (account.fingerprintHistory!.length > MAX_FINGERPRINT_HISTORY) {
-        account.fingerprintHistory = account.fingerprintHistory!.slice(0, MAX_FINGERPRINT_HISTORY);
+      if (history.length > MAX_FINGERPRINT_HISTORY) {
+        account.fingerprintHistory = history.slice(0, MAX_FINGERPRINT_HISTORY);
       }
     }
 

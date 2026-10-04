@@ -17,6 +17,53 @@ import { prepareAntigravityRequest, transformAntigravityResponse, isGenerativeLa
 import { OPENCODE_MODEL_DEFINITIONS } from "../plugin/config/models";
 import { updateOpencodeConfig } from "../plugin/config/updater";
 const log = createLogger("v2-adapter");
+function isRecord(value) {
+    return typeof value === "object" && value !== null;
+}
+function createOAuthAuth(refresh) {
+    return {
+        type: "oauth",
+        refresh,
+        access: "",
+        expires: 0,
+    };
+}
+function createQuotaProbeClient() {
+    return {
+        tui: { showToast: async () => undefined },
+    };
+}
+function readHeaders(value) {
+    if (value == null)
+        return undefined;
+    return value;
+}
+function isBodyRequest(value) {
+    return isRecord(value) && typeof value.clone === "function";
+}
+function isBlockedEarly(value) {
+    return "blockedEarly" in value && value.blockedEarly === true;
+}
+function readStatus(value) {
+    if (!isRecord(value) || typeof value.status !== "number")
+        return undefined;
+    return value.status;
+}
+function isOkResponse(value) {
+    return isRecord(value) && value.ok === true;
+}
+function canUpdateModel(editor) {
+    return typeof editor.update === "function";
+}
+function canAddEntry(editor) {
+    return typeof editor.add === "function";
+}
+function requireAddEditor(editor) {
+    if (!isRecord(editor) || !canAddEntry(editor)) {
+        throw new TypeError("editor.add is not a function");
+    }
+    return editor;
+}
 function resolveFamilyFromRequest(url, bodyText) {
     let modelName = "";
     try {
@@ -57,7 +104,7 @@ function getSharedAccountManager() {
  * when it is stale, so getCurrentOrNextForFamily() can route by real remaining
  * quota instead of blindly reusing a depleted account.
  */
-async function refreshQuotaCacheForFamily(manager, family) {
+async function refreshQuotaCacheForFamily(manager) {
     if (quotaRefreshInFlight) {
         await quotaRefreshInFlight;
         return;
@@ -69,22 +116,17 @@ async function refreshQuotaCacheForFamily(manager, family) {
     if (!stale)
         return;
     const refresh = (async () => {
-        const mockClient = { tui: { showToast: async () => { } } };
+        const mockClient = createQuotaProbeClient();
         const active = snapshot.filter((a) => a.enabled !== false);
         const results = await Promise.all(active.map(async (acc) => {
             try {
-                const mockAuth = {
-                    type: "oauth",
-                    refresh: acc.parts.refreshToken,
-                    access: "",
-                    expires: 0,
-                };
+                const mockAuth = createOAuthAuth(acc.parts.refreshToken);
                 const refreshed = await refreshAccessToken(mockAuth, mockClient, ANTIGRAVITY_PROVIDER_ID);
                 if (!refreshed?.access)
                     return null;
                 const projectId = acc.parts.managedProjectId || acc.parts.projectId || "default-cli-project";
                 const resp = await fetchAvailableModels(refreshed.access, projectId);
-                return { index: acc.index, models: (resp.models || {}) };
+                return { index: acc.index, models: resp.models ?? {} };
             }
             catch (e) {
                 log.warn(`[quota refresh] failed for ${acc.email}: ${e instanceof Error ? e.message : String(e)}`);
@@ -175,7 +217,7 @@ async function getQuotaReport() {
     if (!storage || storage.accounts.length === 0) {
         return "No Antigravity accounts configured.";
     }
-    const mockClient = { tui: { showToast: async () => { } } };
+    const mockClient = createQuotaProbeClient();
     const quotaResults = await checkAccountsQuota(storage.accounts, mockClient, ANTIGRAVITY_PROVIDER_ID);
     return formatQuotaReportMarkdown(quotaResults);
 }
@@ -190,13 +232,8 @@ async function performSearch(query, urls, thinking = true, signal) {
         return "Error: Selected account has no valid credentials.";
     }
     const projectId = primary.managedProjectId || primary.projectId || "default-cli-project";
-    const mockAuth = {
-        type: "oauth",
-        refresh: primary.refreshToken,
-        access: "",
-        expires: 0,
-    };
-    const mockClient = { tui: { showToast: async () => { } } };
+    const mockAuth = createOAuthAuth(primary.refreshToken);
+    const mockClient = createQuotaProbeClient();
     try {
         const refreshed = await refreshAccessToken(mockAuth, mockClient, ANTIGRAVITY_PROVIDER_ID);
         if (!refreshed?.access) {
@@ -223,7 +260,10 @@ export async function setupV2(context) {
     if (context.session && typeof context.session.hook === "function") {
         // Intercept outbound HTTP requests to Google Cloud Code
         await context.session.hook("http.request", async (event) => {
-            const url = event.request?.url || "";
+            if (!isRecord(event))
+                return;
+            const request = isRecord(event.request) ? event.request : undefined;
+            const url = typeof request?.url === "string" ? request.url : "";
             if (!isGenerativeLanguageRequest(url)) {
                 return;
             }
@@ -232,9 +272,9 @@ export async function setupV2(context) {
                 log.warn("Antigravity request detected but no accounts configured");
                 return;
             }
-            let bodyText = "";
+            let bodyText;
             try {
-                bodyText = await event.request.clone().text();
+                bodyText = isBodyRequest(event.request) ? await event.request.clone().text() : "";
             }
             catch {
                 bodyText = "";
@@ -244,7 +284,7 @@ export async function setupV2(context) {
             let accountManager = null;
             try {
                 accountManager = await getSharedAccountManager();
-                await refreshQuotaCacheForFamily(accountManager, family);
+                await refreshQuotaCacheForFamily(accountManager);
             }
             catch (err) {
                 log.warn(`Failed to initialize AccountManager in v2 adapter: ${err}`);
@@ -291,13 +331,8 @@ export async function setupV2(context) {
                 await saveAccounts(storage).catch(() => { });
             }
             log.info(`[v2 routing] Selected account idx=${activeIndex} (${account.email || "unknown"}) for family=${family} model=${modelName || "default"}`);
-            const mockAuth = {
-                type: "oauth",
-                refresh: account.refreshToken,
-                access: "",
-                expires: 0,
-            };
-            const mockClient = { tui: { showToast: async () => { } } };
+            const mockAuth = createOAuthAuth(account.refreshToken);
+            const mockClient = createQuotaProbeClient();
             let accessToken = "";
             try {
                 const refreshed = await refreshAccessToken(mockAuth, mockClient, ANTIGRAVITY_PROVIDER_ID);
@@ -306,12 +341,13 @@ export async function setupV2(context) {
             catch (err) {
                 log.warn(`Token refresh error in v2 adapter: ${err}`);
             }
-            const headers = new Headers(event.request.headers);
+            const headers = new Headers(readHeaders(request?.headers));
             if (accessToken) {
                 headers.set("Authorization", `Bearer ${accessToken}`);
             }
+            const method = typeof request?.method === "string" ? request.method : undefined;
             const prepared = prepareAntigravityRequest(url, {
-                method: event.request.method,
+                method,
                 headers,
                 body: bodyText,
             }, accessToken, account.managedProjectId || account.projectId || "default-cli-project", undefined, "antigravity");
@@ -321,11 +357,13 @@ export async function setupV2(context) {
         });
         // Transform inbound SSE responses and extract thinking tokens
         await context.session.hook("http.response", async (event) => {
+            if (!isRecord(event))
+                return;
             const prepared = pendingRequests.get(event.sessionID);
             if (!prepared) {
                 return;
             }
-            if (prepared.blockedEarly) {
+            if (isBlockedEarly(prepared)) {
                 event.response = new Response(JSON.stringify({
                     error: {
                         code: 429,
@@ -345,11 +383,12 @@ export async function setupV2(context) {
             }
             // Mark account as used or rate-limited on response arrival
             const meta = pendingFamily.get(event.sessionID);
-            const isRateLimitedOrQuota = event.response && (event.response.status === 429 || event.response.status === 403);
+            const responseStatus = readStatus(event.response);
+            const isRateLimitedOrQuota = event.response != null && (responseStatus === 429 || responseStatus === 403);
             if (meta !== undefined) {
                 try {
                     const mgr = await getSharedAccountManager();
-                    if (event.response?.ok) {
+                    if (isOkResponse(event.response)) {
                         mgr.markAccountUsed(meta.accountIndex);
                     }
                     else if (isRateLimitedOrQuota) {
@@ -374,7 +413,7 @@ export async function setupV2(context) {
                                 failedAccount.cachedQuotaUpdatedAt = Date.now();
                             }
                             await saveAccounts(storage).catch(() => { });
-                            log.warn(`[v2 routing] Account idx=${meta.accountIndex} encountered status=${event.response.status}. Switched activeIndex -> ${nextIdx}`);
+                            log.warn(`[v2 routing] Account idx=${meta.accountIndex} encountered status=${responseStatus}. Switched activeIndex -> ${nextIdx}`);
                         }
                     }
                 }
@@ -383,7 +422,10 @@ export async function setupV2(context) {
                 }
             }
             try {
-                const transformed = await transformAntigravityResponse(event.response, prepared.streaming, null, prepared.requestedModel, prepared.projectId, prepared.endpoint, prepared.effectiveModel, prepared.sessionId, prepared.toolDebugMissing, prepared.toolDebugSummary, prepared.toolDebugPayload, undefined, async (ratings) => {
+                if (!(event.response instanceof Response)) {
+                    throw new TypeError("Expected Response");
+                }
+                let response = await transformAntigravityResponse(event.response, prepared.streaming, null, prepared.requestedModel, prepared.projectId, prepared.endpoint, prepared.effectiveModel, prepared.sessionId, prepared.toolDebugMissing, prepared.toolDebugSummary, prepared.toolDebugPayload, undefined, async (ratings) => {
                     if (!config.safety_shield?.enabled)
                         return;
                     const highRisk = ratings.filter((r) => r.probability === "HIGH" || r.probability === "MEDIUM");
@@ -404,18 +446,18 @@ export async function setupV2(context) {
                         }
                     }
                 });
-                event.response = transformed;
                 // If Google returned 429/403 or quota exceeded, inject x-should-retry: true into transformed response
                 // so OpenCode SessionRunner invokes hook("retry") to rotate accounts instead of aborting the session
-                if (event.response && (event.response.status === 429 || event.response.status === 403)) {
-                    const headers = new Headers(event.response.headers);
+                if (response.status === 429 || response.status === 403) {
+                    const headers = new Headers(response.headers);
                     headers.set("x-should-retry", "true");
-                    event.response = new Response(event.response.body, {
-                        status: event.response.status,
-                        statusText: event.response.statusText,
+                    response = new Response(response.body, {
+                        status: response.status,
+                        statusText: response.statusText,
                         headers,
                     });
                 }
+                event.response = response;
             }
             catch (error) {
                 log.warn(`Response transform error in v2 adapter: ${error}`);
@@ -423,7 +465,7 @@ export async function setupV2(context) {
             finally {
                 pendingRequests.delete(event.sessionID);
                 // Only delete pendingFamily if request succeeded; keep it if failed so hook("retry") can inspect it
-                if (event.response?.ok) {
+                if (isOkResponse(event.response)) {
                     pendingFamily.delete(event.sessionID);
                 }
             }
@@ -431,8 +473,12 @@ export async function setupV2(context) {
         // Native retry hook: fast failover to next account on HTTP 429, 403,
         // or transport failures (Decode error / truncated SSE streams).
         await context.session.hook("retry", async (event) => {
-            const status = event.error?.status;
-            const message = (event.error?.message || "").toLowerCase();
+            if (!isRecord(event))
+                return;
+            const error = isRecord(event.error) ? event.error : undefined;
+            const status = typeof error?.status === "number" ? error.status : undefined;
+            const rawMessage = error?.message;
+            const message = (typeof rawMessage === "string" ? rawMessage : "").toLowerCase();
             const isRotatable = status === 429 ||
                 status === 403 ||
                 message.includes("decode") ||
@@ -471,11 +517,14 @@ export async function setupV2(context) {
     // 2. Model catalog transforms in OpenCode v2
     if (context.model && typeof context.model.transform === "function") {
         await context.model.transform((editor) => {
+            if (!isRecord(editor)) {
+                throw new TypeError("model editor must be an object");
+            }
             for (const [modelId, def] of Object.entries(OPENCODE_MODEL_DEFINITIONS)) {
                 try {
                     // If model already exists in editor (e.g. from opencode.json or base provider), update it
                     let updated = false;
-                    if (typeof editor.update === "function") {
+                    if (canUpdateModel(editor)) {
                         try {
                             editor.update("google", modelId, (draft) => {
                                 draft.name = def.name;
@@ -495,7 +544,7 @@ export async function setupV2(context) {
                         }
                     }
                     // If not updated and editor.add is available, auto-register it directly
-                    if (!updated && typeof editor.add === "function") {
+                    if (!updated && canAddEntry(editor)) {
                         try {
                             editor.add({
                                 providerID: "google",
@@ -525,8 +574,9 @@ export async function setupV2(context) {
     // 3. Register tools in OpenCode v2 tool registry
     if (context.tool && typeof context.tool.transform === "function") {
         await context.tool.transform((editor) => {
+            const editable = requireAddEditor(editor);
             // antigravity_quota tool
-            editor.add({
+            editable.add({
                 id: "antigravity_quota",
                 name: "antigravity_quota",
                 description: "Check Antigravity quota (5h and weekly windows) across all configured Google accounts",
@@ -546,7 +596,7 @@ export async function setupV2(context) {
                 },
             });
             // google_search tool
-            editor.add({
+            editable.add({
                 id: "google_search",
                 name: "google_search",
                 description: "Search the web using Google Search and analyze URLs",
@@ -571,7 +621,7 @@ export async function setupV2(context) {
                 },
             });
             // antigravity_stats tool
-            editor.add({
+            editable.add({
                 id: "antigravity_stats",
                 name: "antigravity_stats",
                 description: "View real-time engine statistics: request counts, account health scores, rate limit tracking, and signature cache performance",
@@ -596,7 +646,8 @@ export async function setupV2(context) {
     // 4. Register slash commands in OpenCode v2
     if (context.command && typeof context.command.transform === "function") {
         await context.command.transform((editor) => {
-            editor.add({
+            const editable = requireAddEditor(editor);
+            editable.add({
                 name: "antigravity-quota",
                 description: "View current Antigravity API quotas across accounts",
                 execute: async () => {
@@ -608,7 +659,7 @@ export async function setupV2(context) {
                     }
                 },
             });
-            editor.add({
+            editable.add({
                 name: "antigravity-stats",
                 description: "View real-time engine statistics (request counts, health scores, and signature cache)",
                 execute: async () => {
@@ -622,7 +673,7 @@ export async function setupV2(context) {
                     }
                 },
             });
-            editor.add({
+            editable.add({
                 name: "antigravity-setup",
                 description: "Zero-config setup: auto-configures opencode.json with Antigravity models, whitelists, and commands",
                 execute: async () => {
@@ -630,9 +681,10 @@ export async function setupV2(context) {
                         const res = await updateOpencodeConfig();
                         if (res.success) {
                             const storage = await loadAccounts();
-                            const count = storage?.accounts?.length ?? 0;
+                            const accounts = storage?.accounts ?? [];
+                            const count = accounts.length;
                             const accountList = count > 0
-                                ? storage.accounts.map((a, i) => `  ${i + 1}. ${a.email || "Account " + (i + 1)}`).join("\n")
+                                ? accounts.map((a, i) => `  ${i + 1}. ${a.email || "Account " + (i + 1)}`).join("\n")
                                 : "  (Sin cuentas configuradas todavía - ejecuta `opencode auth login` para agregar una)";
                             return `Antigravity configurado con éxito en: ${res.configPath}\n\nCuentas activas (${count}):\n${accountList}\n\nModelos disponibles:\n• google/antigravity-gemini-3.8-flash (default)\n• google/antigravity-gemini-3.7-flash\n• google/antigravity-gemini-3.6-flash\n• google/antigravity-gemini-3.1-pro\n• google/antigravity-claude-sonnet-4-6\n• google/antigravity-claude-opus-4-6-thinking\n• google/antigravity-gpt-oss-120b-medium`;
                         }

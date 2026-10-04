@@ -8,6 +8,35 @@ import {
   sanitizeCrossModelPayloadInPlace,
 } from "./cross-model-sanitizer";
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function dig(root: unknown, ...keys: Array<string | number>): unknown {
+  let current = root;
+  for (const key of keys) {
+    if (typeof key === "number") {
+      if (!Array.isArray(current) || key < 0 || key >= current.length) {
+        throw new Error(`expected index ${key}`);
+      }
+      current = current[key];
+      continue;
+    }
+    if (!isRecord(current)) {
+      throw new Error(`expected object for ${key}`);
+    }
+    current = current[key];
+  }
+  return current;
+}
+
+function opt(value: unknown, key: string): unknown {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  return value[key];
+}
+
 describe("cross-model-sanitizer", () => {
   describe("getModelFamily", () => {
     it("identifies Claude models", () => {
@@ -199,11 +228,9 @@ describe("cross-model-sanitizer", () => {
       };
 
       const result = deepSanitizeCrossModelMetadata(payload, "claude");
-      const parts = (result.obj as any).contents[0].parts;
-
-      expect(parts[0].thoughtSignature).toBeUndefined();
-      expect(parts[1].metadata?.google?.thoughtSignature).toBeUndefined();
-      expect(parts[1].functionCall.name).toBe("bash");
+      expect(dig(result.obj, "contents", 0, "parts", 0, "thoughtSignature")).toBeUndefined();
+      expect(opt(opt(dig(result.obj, "contents", 0, "parts", 1, "metadata"), "google"), "thoughtSignature")).toBeUndefined();
+      expect(dig(result.obj, "contents", 0, "parts", 1, "functionCall", "name")).toBe("bash");
       expect(result.stripped).toBe(2);
     });
 
@@ -225,10 +252,8 @@ describe("cross-model-sanitizer", () => {
       };
 
       const result = deepSanitizeCrossModelMetadata(payload, "gemini");
-      const content = (result.obj as any).messages[0].content;
-
-      expect(content[0].signature).toBeUndefined();
-      expect(content[1].name).toBe("bash");
+      expect(dig(result.obj, "messages", 0, "content", 0, "signature")).toBeUndefined();
+      expect(dig(result.obj, "messages", 0, "content", 1, "name")).toBe("bash");
       expect(result.stripped).toBe(1);
     });
 
@@ -250,9 +275,7 @@ describe("cross-model-sanitizer", () => {
       };
 
       const result = deepSanitizeCrossModelMetadata(payload, "claude");
-      const content = (result.obj as any).extra_body.messages[0].content;
-
-      expect(content[0].metadata?.google?.thoughtSignature).toBeUndefined();
+      expect(opt(opt(dig(result.obj, "extra_body", "messages", 0, "content", 0, "metadata"), "google"), "thoughtSignature")).toBeUndefined();
       expect(result.stripped).toBe(1);
     });
 
@@ -306,9 +329,8 @@ describe("cross-model-sanitizer", () => {
 
       expect(result.modified).toBe(true);
       expect(result.signaturesStripped).toBe(2);
-      const parts = (result.payload as any).contents[0].parts;
-      expect(parts[0].thoughtSignature).toBeUndefined();
-      expect(parts[1].metadata?.google?.thoughtSignature).toBeUndefined();
+      expect(dig(result.payload, "contents", 0, "parts", 0, "thoughtSignature")).toBeUndefined();
+      expect(opt(opt(dig(result.payload, "contents", 0, "parts", 1, "metadata"), "google"), "thoughtSignature")).toBeUndefined();
     });
 
     it("strips Claude signatures when target is Gemini", () => {
@@ -350,7 +372,7 @@ describe("cross-model-sanitizer", () => {
 
       expect(result.modified).toBe(false);
       expect(result.signaturesStripped).toBe(0);
-      expect((result.payload as any).contents[0].parts[0].thoughtSignature).toBe("sig");
+      expect(dig(result.payload, "contents", 0, "parts", 0, "thoughtSignature")).toBe("sig");
     });
 
     it("preserves functionCall structure", () => {
@@ -375,9 +397,8 @@ describe("cross-model-sanitizer", () => {
         targetModel: "claude-opus-4-6-thinking-low",
       });
 
-      const fc = (result.payload as any).contents[0].parts[0].functionCall;
-      expect(fc.name).toBe("Bash");
-      expect(fc.args.command).toBe("df -h");
+      expect(dig(result.payload, "contents", 0, "parts", 0, "functionCall", "name")).toBe("Bash");
+      expect(dig(result.payload, "contents", 0, "parts", 0, "functionCall", "args", "command")).toBe("df -h");
     });
 
     it("preserves non-signature metadata when option is true", () => {
@@ -405,10 +426,10 @@ describe("cross-model-sanitizer", () => {
         preserveNonSignatureMetadata: true,
       });
 
-      const meta = (result.payload as any).contents[0].parts[0].metadata;
-      expect(meta.google.thoughtSignature).toBeUndefined();
-      expect(meta.google.groundingMetadata).toBe("keep-me");
-      expect(meta.cache_control.type).toBe("ephemeral");
+      const meta = dig(result.payload, "contents", 0, "parts", 0, "metadata");
+      expect(dig(meta, "google", "thoughtSignature")).toBeUndefined();
+      expect(dig(meta, "google", "groundingMetadata")).toBe("keep-me");
+      expect(dig(meta, "cache_control", "type")).toBe("ephemeral");
     });
   });
 
@@ -433,7 +454,7 @@ describe("cross-model-sanitizer", () => {
       );
 
       expect(stripped).toBe(1);
-      expect((payload as any).contents[0].parts[0].thoughtSignature).toBeUndefined();
+      expect(dig(payload, "contents", 0, "parts", 0, "thoughtSignature")).toBeUndefined();
     });
 
     it("handles extra_body.messages", () => {
@@ -522,18 +543,15 @@ describe("cross-model-sanitizer", () => {
       expect(result.modified).toBe(true);
       expect(result.signaturesStripped).toBe(2);
 
-      const modelParts = (result.payload as any).contents[1].parts;
-      expect(modelParts[0].thoughtSignature).toBeUndefined();
-      expect(modelParts[0].thought).toBe(true);
-      expect(modelParts[0].text).toContain("analyze disk usage");
+      expect(dig(result.payload, "contents", 1, "parts", 0, "thoughtSignature")).toBeUndefined();
+      expect(dig(result.payload, "contents", 1, "parts", 0, "thought")).toBe(true);
+      expect(dig(result.payload, "contents", 1, "parts", 0, "text")).toContain("analyze disk usage");
 
-      expect(modelParts[1].metadata?.google?.thoughtSignature).toBeUndefined();
-      expect(modelParts[1].functionCall.name).toBe("Bash");
-      expect(modelParts[1].functionCall.args.command).toBe("df -h");
+      expect(opt(opt(dig(result.payload, "contents", 1, "parts", 1, "metadata"), "google"), "thoughtSignature")).toBeUndefined();
+      expect(dig(result.payload, "contents", 1, "parts", 1, "functionCall", "name")).toBe("Bash");
+      expect(dig(result.payload, "contents", 1, "parts", 1, "functionCall", "args", "command")).toBe("df -h");
 
-      const functionResponse = (result.payload as any).contents[2].parts[0]
-        .functionResponse;
-      expect(functionResponse.name).toBe("Bash");
+      expect(dig(result.payload, "contents", 2, "parts", 0, "functionResponse", "name")).toBe("Bash");
     });
 
     it("handles Claude thinking + tool use -> Gemini tool call scenario", () => {
@@ -579,10 +597,9 @@ describe("cross-model-sanitizer", () => {
       expect(result.modified).toBe(true);
       expect(result.signaturesStripped).toBe(1);
 
-      const assistantContent = (result.payload as any).messages[1].content;
-      expect(assistantContent[0].signature).toBeUndefined();
-      expect(assistantContent[0].thinking).toContain("list the files");
-      expect(assistantContent[1].name).toBe("bash");
+      expect(dig(result.payload, "messages", 1, "content", 0, "signature")).toBeUndefined();
+      expect(dig(result.payload, "messages", 1, "content", 0, "thinking")).toContain("list the files");
+      expect(dig(result.payload, "messages", 1, "content", 1, "name")).toBe("bash");
     });
   });
 });

@@ -107,7 +107,14 @@ const ANTIGRAVITY_API_CLIENTS = [
 ] as const;
 
 function randomFrom<T>(arr: readonly T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
+  if (arr.length === 0) {
+    throw new Error("randomFrom called with an empty array");
+  }
+  const item = arr[Math.floor(Math.random() * arr.length)];
+  if (item === undefined) {
+    throw new Error("randomFrom produced undefined");
+  }
+  return item;
 }
 
 export type HeaderSet = {
@@ -117,6 +124,8 @@ export type HeaderSet = {
 };
 
 export function getRandomizedHeaders(style: HeaderStyle = "antigravity", model?: string): HeaderSet {
+  void style;
+  void model;
   const platform = randomFrom(ANTIGRAVITY_PLATFORMS);
   const metadataPlatform = platform.startsWith("windows") ? "WINDOWS" : "MACOS";
   return {

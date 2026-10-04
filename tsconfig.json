@@ -1,13 +1,12 @@
 {
-  "include": ["src/**/*", "scripts/**/*"],
-  "exclude": ["node_modules", "dist", "temp_research", "script"],
+  "include": ["index.ts", "src/**/*", "script/**/*", "scripts/**/*"],
+  "exclude": ["node_modules", "dist", "temp_research"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext", "DOM"],
     "target": "ESNext",
     "module": "Preserve",
     "moduleDetection": "force",
-    "jsx": "react-jsx",
     "allowJs": true,
 
     // Bundler mode
@@ -25,8 +24,8 @@
     "noImplicitOverride": true,
 
     // Some stricter flags (disabled by default)
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "noPropertyAccessFromIndexSignature": false
   }
 }

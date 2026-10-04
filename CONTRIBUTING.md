@@ -8,7 +8,7 @@ Thank you for your interest in contributing to `opencode-antigravity-auth`! We w
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v20 or higher
+- [Node.js](https://nodejs.org/) 24, `lts/krypton`, v24.11 or higher
 - [npm](https://www.npmjs.com/) or [bun](https://bun.sh/)
 - [OpenCode](https://opencode.ai/) installed locally for integration testing
 
@@ -16,8 +16,8 @@ Thank you for your interest in contributing to `opencode-antigravity-auth`! We w
 
 1. **Fork and Clone:**
    ```bash
-   git clone https://github.com/JoshRob297/opencode-antigravity-auth.git
-   cd opencode-antigravity-auth
+   git clone https://github.com/wedreamer/antigravity-auth.git
+   cd antigravity-auth
    ```
 
 2. **Install Dependencies:**
@@ -41,7 +41,9 @@ Thank you for your interest in contributing to `opencode-antigravity-auth`! We w
 
 Before opening a pull request, ensure all checks pass:
 
-- **Type Check & Build**: `npm run build` must complete with zero TypeScript compiler errors.
+- **Type Check**: `npm run typecheck` must pass.
+- **Lint**: `npm run lint` must pass. The linter is ESLint (`eslint.config.js`), not Biome.
+- **Build**: `npm run build` must complete with zero TypeScript compiler errors.
 - **Unit Tests**: `npm test` must run all Vitest test suites (1,000+ tests) with zero failures.
 - **Schema Synchronization**: If modifying configuration types in `src/plugin/config/schema.ts`, regenerate the schema via:
   ```bash

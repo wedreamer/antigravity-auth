@@ -24,13 +24,14 @@ function removeFromBunLock(packageName: string): boolean {
     const lock = JSON.parse(stripTrailingCommas(content)) as BunLockfile;
     let modified = false;
 
-    if (lock.workspaces?.[""]?.dependencies?.[packageName]) {
-      delete lock.workspaces[""].dependencies[packageName];
+    const workspaceDeps = lock.workspaces?.[""]?.dependencies;
+    if (workspaceDeps?.[packageName]) {
+      Reflect.deleteProperty(workspaceDeps, packageName);
       modified = true;
     }
 
     if (lock.packages?.[packageName]) {
-      delete lock.packages[packageName];
+      Reflect.deleteProperty(lock.packages, packageName);
       modified = true;
     }
 
@@ -64,7 +65,7 @@ export function invalidatePackage(packageName: string = PACKAGE_NAME): boolean {
       const content = fs.readFileSync(pkgJsonPath, "utf-8");
       const pkgJson = JSON.parse(content);
       if (pkgJson.dependencies?.[packageName]) {
-        delete pkgJson.dependencies[packageName];
+        Reflect.deleteProperty(pkgJson.dependencies, packageName);
         fs.writeFileSync(pkgJsonPath, JSON.stringify(pkgJson, null, 2));
         console.log(`[auto-update-checker] Dependency removed from package.json: ${packageName}`);
         dependencyRemoved = true;

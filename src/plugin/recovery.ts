@@ -141,8 +141,8 @@ interface ToolUsePart {
 
 function extractToolUseIds(parts: MessagePart[]): string[] {
   return parts
-    .filter((p): p is ToolUsePart & MessagePart => p.type === "tool_use" && !!p.id)
-    .map((p) => p.id!);
+    .filter((p): p is ToolUsePart & MessagePart & { id: string } => p.type === "tool_use" && typeof p.id === "string")
+    .map((p) => p.id);
 }
 
 // =============================================================================
@@ -233,8 +233,9 @@ async function recoverThinkingBlockOrder(
  */
 async function recoverThinkingDisabledViolation(
   sessionID: string,
-  _failedMsg: MessageData
+  failedMsg: MessageData
 ): Promise<boolean> {
+  void failedMsg;
   const messagesWithThinking = findMessagesWithThinkingBlocks(sessionID);
 
   if (messagesWithThinking.length === 0) {
@@ -415,7 +416,6 @@ export function createSessionRecoveryHook(
     // OpenCode's session.error event may not include messageID
     // In that case, we need to fetch messages and find the latest assistant with error
     let assistantMsgID = info.id;
-    let msgs: MessageData[] | undefined;
     const log = createLogger("session-recovery");
 
     log.debug("Recovery attempt started", {
@@ -437,7 +437,7 @@ export function createSessionRecoveryHook(
       path: { id: sessionID },
       query: { directory },
     });
-    msgs = (messagesResp as { data?: MessageData[] }).data;
+    const msgs = (messagesResp as { data?: MessageData[] }).data;
 
     // If messageID wasn't provided, find the latest assistant message with an error
     if (!assistantMsgID && msgs && msgs.length > 0) {

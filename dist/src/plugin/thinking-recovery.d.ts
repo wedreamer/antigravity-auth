@@ -32,7 +32,7 @@ export interface ConversationState {
  * We need to find the TURN START (first assistant message after last real user message)
  * and check if THAT message had thinking, not just the last assistant message.
  */
-export declare function analyzeConversationState(contents: any[]): ConversationState;
+export declare function analyzeConversationState(contents: unknown): ConversationState;
 /**
  * Closes an incomplete tool loop by injecting synthetic messages to start a new turn.
  *
@@ -50,7 +50,7 @@ export declare function analyzeConversationState(contents: any[]): ConversationS
  *
  * This allows Claude to generate fresh thinking for the new turn.
  */
-export declare function closeToolLoopForThinking(contents: any[]): any[];
+export declare function closeToolLoopForThinking(contents: unknown[]): unknown[];
 /**
  * Checks if conversation state requires tool loop closure for thinking recovery.
  *
@@ -78,7 +78,7 @@ export declare function needsThinkingRecovery(state: ConversationState): boolean
  * @param msg - A single message from the conversation
  * @returns true if the message looks like thinking was stripped
  */
-export declare function looksLikeCompactedThinkingTurn(msg: any): boolean;
+export declare function looksLikeCompactedThinkingTurn(msg: unknown): boolean;
 /**
  * Checks if any message in the current turn looks like it was compacted.
  *
@@ -86,5 +86,5 @@ export declare function looksLikeCompactedThinkingTurn(msg: any): boolean;
  * @param turnStartIdx - Index of the first model message in current turn
  * @returns true if any model message in the turn looks compacted
  */
-export declare function hasPossibleCompactedThinking(contents: any[], turnStartIdx: number): boolean;
+export declare function hasPossibleCompactedThinking(contents: unknown, turnStartIdx: number): boolean;
 //# sourceMappingURL=thinking-recovery.d.ts.map

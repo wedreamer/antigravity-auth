@@ -36,7 +36,7 @@ export function stripGeminiThinkingMetadata(part, preserveNonSignature = true) {
             const google = metadata.google;
             for (const field of GEMINI_SIGNATURE_FIELDS) {
                 if (field in google) {
-                    delete google[field];
+                    Reflect.deleteProperty(google, field);
                     stripped++;
                 }
             }
@@ -55,7 +55,7 @@ export function stripClaudeThinkingFields(part) {
     if (part.type === "thinking" || part.type === "redacted_thinking") {
         for (const field of CLAUDE_SIGNATURE_FIELDS) {
             if (field in part) {
-                delete part[field];
+                Reflect.deleteProperty(part, field);
                 stripped++;
             }
         }

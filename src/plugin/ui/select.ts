@@ -25,8 +25,9 @@ export interface SelectOptions {
 
 const ESCAPE_TIMEOUT_MS = 50;
 
-const ANSI_REGEX = new RegExp("\\x1b\\[[0-9;]*m", "g");
-const ANSI_LEADING_REGEX = new RegExp("^\\x1b\\[[0-9;]*m");
+const ESC = String.fromCharCode(0x1b);
+const ANSI_REGEX = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+const ANSI_LEADING_REGEX = new RegExp(`^${ESC}\\[[0-9;]*m`);
 
 function stripAnsi(input: string): string {
   return input.replace(ANSI_REGEX, '');
@@ -97,7 +98,11 @@ export async function select<T>(
   }
 
   if (enabledItems.length === 1) {
-    return enabledItems[0]!.value;
+    const only = enabledItems[0];
+    if (!only) {
+      throw new Error("All items disabled");
+    }
+    return only.value;
   }
 
   const { message, subtitle } = options;

@@ -348,7 +348,10 @@ describe("regression tests", () => {
         (call) => (call[0] as string).includes(".tmp")
       );
       expect(tmpWriteCall).toBeDefined();
-      const parsed = JSON.parse(tmpWriteCall![1] as string);
+      if (!tmpWriteCall) {
+        throw new Error("expected tmp write call");
+      }
+      const parsed = JSON.parse(tmpWriteCall[1] as string);
       expect(parsed.accounts).toHaveLength(3);
 
       const gitignoreWriteCall = vi.mocked(fs.writeFile).mock.calls.find(

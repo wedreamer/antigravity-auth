@@ -4,6 +4,11 @@ import {
   getModelFamily,
 } from '../src/plugin/transform/cross-model-sanitizer';
 
+function field(value: unknown, key: string): unknown {
+  if (value === null || typeof value !== 'object') return undefined;
+  return Reflect.get(value, key);
+}
+
 const GEMINI_THOUGHT_SIGNATURE = 'EsgQCsUQAXLI2nybuafAE150LGTo2r78fakesig123abc456def789';
 
 const geminiHistoryWithThinkingAndToolCall = {
@@ -75,12 +80,16 @@ function runTests(): void {
     targetModel: 'claude-opus-4-6-thinking-medium'
   });
 
-  const payload = result.payload as any;
-  const modelParts = payload.contents[1].parts;
-  const thinkingPart = modelParts[0];
-  const toolPart = modelParts[1];
+  const payload = result.payload as {
+    contents: Array<{ parts: Array<Record<string, unknown>> }>;
+  };
+  const modelParts = payload.contents[1]?.parts;
+  const thinkingPart = modelParts?.[0];
+  const toolPart = modelParts?.[1];
+  const google = field(field(toolPart, 'metadata'), 'google');
+  const functionCall = field(toolPart, 'functionCall');
 
-  if (thinkingPart.thoughtSignature === undefined) {
+  if (thinkingPart && thinkingPart.thoughtSignature === undefined) {
     console.log('  ✅ PASS: Top-level thoughtSignature stripped from thinking part');
     passed++;
   } else {
@@ -88,7 +97,7 @@ function runTests(): void {
     failed++;
   }
 
-  if (toolPart.metadata?.google?.thoughtSignature === undefined) {
+  if (field(google, 'thoughtSignature') === undefined) {
     console.log('  ✅ PASS: Nested metadata.google.thoughtSignature stripped from tool part');
     passed++;
   } else {
@@ -96,7 +105,7 @@ function runTests(): void {
     failed++;
   }
 
-  if (toolPart.functionCall?.name === 'Bash') {
+  if (field(functionCall, 'name') === 'Bash') {
     console.log('  ✅ PASS: functionCall structure preserved');
     passed++;
   } else {

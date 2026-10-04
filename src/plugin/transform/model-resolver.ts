@@ -237,6 +237,7 @@ export function resolveAntigravityGemini38FlashBackendModel(
  * @returns Resolved model with thinking configuration
  */
 export function resolveModelWithTier(requestedModel: string, options: ModelResolverOptions = {}): ResolvedModel {
+  void options;
   const isAntigravity = QUOTA_PREFIX_REGEX.test(requestedModel);
   const modelWithoutQuota = requestedModel.replace(QUOTA_PREFIX_REGEX, "");
 
@@ -244,7 +245,6 @@ export function resolveModelWithTier(requestedModel: string, options: ModelResol
   const baseName = tier ? modelWithoutQuota.replace(TIER_REGEX, "") : modelWithoutQuota;
 
   const isImageModel = IMAGE_GENERATION_MODELS.test(modelWithoutQuota);
-  const isClaudeModel = modelWithoutQuota.toLowerCase().includes("claude");
   
   // All models strictly route to Antigravity quota
   const quotaPreference = "antigravity" as const;
@@ -388,6 +388,7 @@ export function resolveModelForHeaderStyle(
   requestedModel: string,
   headerStyle: "antigravity" = "antigravity"
 ): ResolvedModel {
+  void headerStyle;
   const lower = requestedModel.toLowerCase();
   const isGemini3 = lower.includes("gemini-3");
   

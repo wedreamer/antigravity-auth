@@ -90,8 +90,12 @@ function cleanupOldLogs(logsDir: string, maxFiles: number): void {
       .sort((a, b) => b.mtime - a.mtime);
 
     for (let i = maxFiles; i < sortedFiles.length; i++) {
+      const file = sortedFiles[i];
+      if (!file) {
+        continue;
+      }
       try {
-        unlinkSync(sortedFiles[i]!.file);
+        unlinkSync(file.file);
       } catch {
         // Ignore deletion errors
       }

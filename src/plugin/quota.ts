@@ -402,7 +402,10 @@ export async function fetchAccountQuotaDetails(
       (m.displayName || m.model || "").toLowerCase().includes("gemini")
     );
 
-    const buildSynthesizedGroup = (displayName: string, modelList: any[]): GroupQuotaDisplay => {
+    const buildSynthesizedGroup = (
+      displayName: string,
+      modelList: NonNullable<FetchAvailableModelsResponse["models"]>[string][],
+    ): GroupQuotaDisplay => {
       let minFraction = 1.0;
       let resetTime = new Date(now + 86400000);
       for (const m of modelList) {
@@ -531,14 +534,16 @@ export function formatQuotaReportMarkdown(results: AccountQuotaResult[]): string
           groupKey = "Claude & GPT Models (Opus / Sonnet / GPT-OSS)";
         }
 
-        if (!groupMap.has(groupKey)) {
-          groupMap.set(groupKey, []);
+        let groupAccounts = groupMap.get(groupKey);
+        if (!groupAccounts) {
+          groupAccounts = [];
+          groupMap.set(groupKey, groupAccounts);
         }
 
         const email = result.email || `account-${result.index + 1}`;
         const savedHealth = EngineStatsManager.getInstance().getSavedHealthScore(email) ?? 100;
 
-        groupMap.get(groupKey)!.push({
+        groupAccounts.push({
           email,
           disabled: result.disabled,
           health: savedHealth,
@@ -599,11 +604,11 @@ export function formatQuotaReportMarkdown(results: AccountQuotaResult[]): string
           familyName = "Claude Models (Opus / Sonnet)";
         }
 
-        if (!familyMap.has(familyName)) {
-          familyMap.set(familyName, new Map());
+        let accountMap = familyMap.get(familyName);
+        if (!accountMap) {
+          accountMap = new Map();
+          familyMap.set(familyName, accountMap);
         }
-
-        const accountMap = familyMap.get(familyName)!;
         const accKey = result.email || `account-${result.index + 1}`;
         if (!accountMap.has(accKey)) {
           accountMap.set(accKey, {

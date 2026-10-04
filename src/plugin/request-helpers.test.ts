@@ -27,6 +27,30 @@ import {
 } from "./request-helpers";
 import { deduplicateThinkingText, createThoughtBuffer } from "./core/streaming/transformer";
 
+function readPath(value: unknown, path: string): unknown {
+  let current: unknown = value;
+  for (const segment of path.split(".")) {
+    if (Array.isArray(current)) {
+      if (/^\d+$/.test(segment)) {
+        current = current[Number(segment)];
+        continue;
+      }
+      current = (current as unknown as Record<string, unknown>)[segment];
+      continue;
+    }
+    if (current == null || typeof current !== "object") {
+      throw new Error(`cannot read ${segment} from ${path}`);
+    }
+    current = (current as Record<string, unknown>)[segment];
+  }
+  return current;
+}
+
+function hasFunctionResponse(part: unknown): boolean {
+  return Boolean(part && typeof part === "object" && (part as Record<string, unknown>).functionResponse);
+}
+
+
 describe("sanitizeThinkingPart (covered via filtering)", () => {
   it("extracts wrapped text and strips SDK fields for Gemini-style thought blocks", () => {
     const validSignature = "s".repeat(60);
@@ -54,16 +78,16 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       { role: "model", parts: [{ text: "trailing" }] },
     ];
 
-    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0]).toEqual({
+    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0")).toEqual({
       thought: true,
       text: thinkingText,
       thoughtSignature: validSignature,
     });
 
-    expect(result[0].parts[0].cache_control).toBeUndefined();
-    expect(result[0].parts[0].providerOptions).toBeUndefined();
+    expect(readPath(result, "0.parts.0.cache_control")).toBeUndefined();
+    expect(readPath(result, "0.parts.0.providerOptions")).toBeUndefined();
   });
 
   it("extracts wrapped thinking text and strips SDK fields for Anthropic-style thinking blocks", () => {
@@ -92,9 +116,9 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       { role: "model", parts: [{ text: "trailing" }] },
     ];
 
-    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0]).toEqual({
+    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0")).toEqual({
       type: "thinking",
       thinking: thinkingText,
       signature: validSignature,
@@ -103,7 +127,7 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
 
   it("preserves signatures while dropping cache_control/providerOptions during signature restoration", () => {
     const cachedSignature = "c".repeat(60);
-    const getCachedSignatureFn = (_sessionId: string, _text: string) => cachedSignature;
+    const getCachedSignatureFn = () => cachedSignature;
 
     const messages = [
       {
@@ -124,8 +148,8 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].content[0]).toEqual({
+    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.content.0")).toEqual({
       type: "thinking",
       thinking: "restore me",
       signature: cachedSignature,
@@ -134,7 +158,7 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
 
   it("sanitizes reasoning blocks keeping only allowed fields (type, text, signature)", () => {
     const validSignature = "z".repeat(60);
-    const getCachedSignatureFn = (_sessionId: string, _text: string) => validSignature;
+    const getCachedSignatureFn = () => validSignature;
 
     const contents = [
       {
@@ -155,8 +179,8 @@ describe("sanitizeThinkingPart (covered via filtering)", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
 
-    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].parts[0]).toEqual({
+    const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.parts.0")).toEqual({
       type: "reasoning",
       text: "reasoning text",
       signature: validSignature,
@@ -327,8 +351,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.type")).toBe("text");
   });
 
   it("keeps signed thinking parts with valid signatures from our cache", () => {
@@ -347,8 +371,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
-    expect(result[0].parts).toHaveLength(2);
-    expect(result[0].parts[0].signature).toBe(validSignature);
+    expect(readPath(result, "0.parts")).toHaveLength(2);
+    expect(readPath(result, "0.parts.0.signature")).toBe(validSignature);
   });
 
   it("strips thinking parts with foreign signatures not in our cache", () => {
@@ -365,8 +389,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.type")).toBe("text");
   });
 
   it("filters thinking parts with short signatures", () => {
@@ -382,8 +406,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.type")).toBe("text");
   });
 
   it("handles Gemini-style thought parts with valid signatures from our cache", () => {
@@ -404,8 +428,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents, "session-1", getCachedSignatureFn);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].thoughtSignature).toBe(validSignature);
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.thoughtSignature")).toBe(validSignature);
   });
 
   it("filters Gemini-style thought parts with short signatures", () => {
@@ -418,7 +442,7 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(0);
+    expect(readPath(result, "0.parts")).toHaveLength(0);
   });
 
   it("preserves non-thinking parts", () => {
@@ -446,14 +470,14 @@ describe("filterUnsignedThinkingBlocks", () => {
       { role: "model", parts: [{ text: "last" }] },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].type).toBe("text");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.type")).toBe("text");
   });
 
   it("handles empty parts array", () => {
     const contents = [{ role: "model", parts: [] }];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toEqual([]);
+    expect(readPath(result, "0.parts")).toEqual([]);
   });
 
   it("handles missing parts", () => {
@@ -478,8 +502,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts[0]).toEqual({ type: "tool_use", id: "tool_123", name: "bash", input: { command: "ls" } });
-    expect(result[1].parts[0]).toEqual({ type: "tool_result", tool_use_id: "tool_123", content: "file1.txt" });
+    expect(readPath(result, "0.parts.0")).toEqual({ type: "tool_use", id: "tool_123", name: "bash", input: { command: "ls" } });
+    expect(readPath(result, "1.parts.0")).toEqual({ type: "tool_result", tool_use_id: "tool_123", content: "file1.txt" });
   });
 
   it("preserves tool blocks even if they have signature-like fields", () => {
@@ -492,8 +516,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].tool_use_id).toBe("tool_456");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.tool_use_id")).toBe("tool_456");
   });
 
   it("preserves nested tool_result format", () => {
@@ -506,8 +530,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts).toHaveLength(1);
-    expect(result[0].parts[0].tool_result.tool_use_id).toBe("tool_789");
+    expect(readPath(result, "0.parts")).toHaveLength(1);
+    expect(readPath(result, "0.parts.0.tool_result.tool_use_id")).toBe("tool_789");
   });
 
   it("preserves functionCall and functionResponse blocks", () => {
@@ -526,8 +550,8 @@ describe("filterUnsignedThinkingBlocks", () => {
       },
     ];
     const result = filterUnsignedThinkingBlocks(contents);
-    expect(result[0].parts[0].functionCall).toBeDefined();
-    expect(result[1].parts[0].functionResponse).toBeDefined();
+    expect(readPath(result, "0.parts.0.functionCall")).toBeDefined();
+    expect(readPath(result, "1.parts.0.functionResponse")).toBeDefined();
   });
 });
 
@@ -549,9 +573,9 @@ describe("deepFilterThinkingBlocks", () => {
     };
 
     deepFilterThinkingBlocks(payload);
-    const filtered = (payload as any).extra_body.messages[0].content;
+    const filtered = readPath(payload, "extra_body.messages.0.content");
     expect(filtered).toHaveLength(1);
-    expect(filtered[0].type).toBe("text");
+    expect(readPath(filtered, "0.type")).toBe("text");
   });
 
 });
@@ -569,9 +593,9 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toHaveLength(1);
-    expect(result[0].content[0].type).toBe("text");
+    const result = filterMessagesThinkingBlocks(messages);
+    expect(readPath(result, "0.content")).toHaveLength(1);
+    expect(readPath(result, "0.content.0.type")).toBe("text");
   });
 
   it("keeps signed thinking blocks with valid signatures from our cache and sanitizes injected fields", () => {
@@ -597,8 +621,8 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].content[0]).toEqual({
+    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.content.0")).toEqual({
       type: "thinking",
       thinking: thinkingText,
       signature: validSignature,
@@ -622,9 +646,9 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toHaveLength(1);
-    expect(result[0].content[0].type).toBe("text");
+    const result = filterMessagesThinkingBlocks(messages);
+    expect(readPath(result, "0.content")).toHaveLength(1);
+    expect(readPath(result, "0.content.0.type")).toBe("text");
   });
 
   it("filters thinking blocks with short signatures", () => {
@@ -639,13 +663,13 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages) as any;
-    expect(result[0].content).toEqual([{ type: "text", text: "visible" }]);
+    const result = filterMessagesThinkingBlocks(messages);
+    expect(readPath(result, "0.content")).toEqual([{ type: "text", text: "visible" }]);
   });
 
   it("restores a missing signature from cache and preserves it after sanitization", () => {
     const cachedSignature = "c".repeat(60);
-    const getCachedSignatureFn = (_sessionId: string, _text: string) => cachedSignature;
+    const getCachedSignatureFn = () => cachedSignature;
 
     const messages = [
       {
@@ -663,8 +687,8 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].content[0]).toEqual({
+    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.content.0")).toEqual({
       type: "thinking",
       thinking: "restore me",
       signature: cachedSignature,
@@ -693,8 +717,8 @@ describe("filterMessagesThinkingBlocks", () => {
       { role: "assistant", content: [{ type: "text", text: "last" }] },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn) as any;
-    expect(result[0].content[0]).toEqual({
+    const result = filterMessagesThinkingBlocks(messages, "session-1", getCachedSignatureFn);
+    expect(readPath(result, "0.content.0")).toEqual({
       thought: true,
       text: thinkingText,
       thoughtSignature: validSignature,
@@ -702,19 +726,19 @@ describe("filterMessagesThinkingBlocks", () => {
   });
 
   it("preserves non-thinking blocks and returns message unchanged when content is missing", () => {
-    const messages: any[] = [
+    const messages = [
       { role: "assistant", content: [{ type: "text", text: "hello" }] },
       { role: "assistant" },
     ];
 
-    const result = filterMessagesThinkingBlocks(messages) as any;
+    const result = filterMessagesThinkingBlocks(messages);
     expect(result[0]).toEqual(messages[0]);
     expect(result[1]).toEqual(messages[1]);
   });
 
   it("handles non-object messages gracefully", () => {
-    const messages: any[] = [null, "string", 123, { role: "assistant", content: [] }];
-    const result = filterMessagesThinkingBlocks(messages) as any;
+    const messages = [null, "string", 123, { role: "assistant", content: [] }] as Parameters<typeof filterMessagesThinkingBlocks>[0];
+    const result = filterMessagesThinkingBlocks(messages);
     expect(result).toEqual(messages);
   });
 });
@@ -727,10 +751,10 @@ describe("transformThinkingParts", () => {
         { type: "text", text: "visible" },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.content[0].type).toBe("reasoning");
-    expect(result.content[0].thought).toBe(true);
-    expect(result.reasoning_content).toBe("my thoughts");
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "content.0.type")).toBe("reasoning");
+    expect(readPath(result, "content.0.thought")).toBe(true);
+    expect(readPath(result, "reasoning_content")).toBe("my thoughts");
   });
 
   it("transforms Gemini-style candidates", () => {
@@ -746,9 +770,9 @@ describe("transformThinkingParts", () => {
         },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].type).toBe("reasoning");
-    expect(result.candidates[0].reasoning_content).toBe("thinking here");
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "candidates.0.content.parts.0.type")).toBe("reasoning");
+    expect(readPath(result, "candidates.0.reasoning_content")).toBe("thinking here");
   });
 
   it("handles non-object input", () => {
@@ -763,9 +787,9 @@ describe("transformThinkingParts", () => {
       id: "resp-123",
       model: "claude-4",
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.id).toBe("resp-123");
-    expect(result.model).toBe("claude-4");
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "id")).toBe("resp-123");
+    expect(readPath(result, "model")).toBe("claude-4");
   });
 
   it("converts Gemini-style thoughtSignature to providerMetadata.anthropic.signature", () => {
@@ -781,11 +805,11 @@ describe("transformThinkingParts", () => {
         },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "candidates.0.content.parts.0.providerMetadata")).toEqual({
       anthropic: { signature: "sig123abc" }
     });
-    expect(result.candidates[0].content.parts[0].thoughtSignature).toBeUndefined();
+    expect(readPath(result, "candidates.0.content.parts.0.thoughtSignature")).toBeUndefined();
   });
 
   it("converts Anthropic-style signature to providerMetadata.anthropic.signature", () => {
@@ -801,11 +825,11 @@ describe("transformThinkingParts", () => {
         },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "candidates.0.content.parts.0.providerMetadata")).toEqual({
       anthropic: { signature: "anthro_sig_xyz" }
     });
-    expect(result.candidates[0].content.parts[0].signature).toBeUndefined();
+    expect(readPath(result, "candidates.0.content.parts.0.signature")).toBeUndefined();
   });
 
   it("converts signature in content array (Anthropic-style)", () => {
@@ -815,12 +839,12 @@ describe("transformThinkingParts", () => {
         { type: "text", text: "visible" },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.content[0].providerMetadata).toEqual({
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "content.0.providerMetadata")).toEqual({
       anthropic: { signature: "content_sig" }
     });
-    expect(result.content[0].signature).toBeUndefined();
-    expect(result.content[0].thoughtSignature).toBeUndefined();
+    expect(readPath(result, "content.0.signature")).toBeUndefined();
+    expect(readPath(result, "content.0.thoughtSignature")).toBeUndefined();
   });
 
   it("prefers signature over thoughtSignature when both present", () => {
@@ -835,8 +859,8 @@ describe("transformThinkingParts", () => {
         },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toEqual({
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "candidates.0.content.parts.0.providerMetadata")).toEqual({
       anthropic: { signature: "sig_primary" }
     });
   });
@@ -854,8 +878,8 @@ describe("transformThinkingParts", () => {
         },
       ],
     };
-    const result = transformThinkingParts(response) as any;
-    expect(result.candidates[0].content.parts[0].providerMetadata).toBeUndefined();
+    const result = transformThinkingParts(response);
+    expect(readPath(result, "candidates.0.content.parts.0.providerMetadata")).toBeUndefined();
   });
 });
 
@@ -1161,12 +1185,15 @@ describe("fixClaudeToolPairing", () => {
     ];
 
     const result = fixClaudeToolPairing(messages);
+    if (!result) {
+      throw new Error("expected paired messages");
+    }
 
     expect(result.length).toBe(3);
-    expect(result[2].content[0].type).toBe("tool_result");
-    expect(result[2].content[0].tool_use_id).toBe("tool-1");
-    expect(result[2].content[0].is_error).toBe(true);
-    expect(result[2].content[1].type).toBe("text");
+    expect(readPath(result, "2.content.0.type")).toBe("tool_result");
+    expect(readPath(result, "2.content.0.tool_use_id")).toBe("tool-1");
+    expect(readPath(result, "2.content.0.is_error")).toBe(true);
+    expect(readPath(result, "2.content.1.type")).toBe("text");
   });
 
   it("handles multiple orphaned tools in same message", () => {
@@ -1183,10 +1210,10 @@ describe("fixClaudeToolPairing", () => {
 
     const result = fixClaudeToolPairing(messages);
 
-    expect(result[1].content.length).toBe(3);
-    expect(result[1].content[0].tool_use_id).toBe("tool-1");
-    expect(result[1].content[1].tool_use_id).toBe("tool-2");
-    expect(result[1].content[2].type).toBe("text");
+    expect(readPath(result, "1.content.length")).toBe(3);
+    expect(readPath(result, "1.content.0.tool_use_id")).toBe("tool-1");
+    expect(readPath(result, "1.content.1.tool_use_id")).toBe("tool-2");
+    expect(readPath(result, "1.content.2.type")).toBe("text");
   });
 
   it("handles empty messages array", () => {
@@ -1194,8 +1221,8 @@ describe("fixClaudeToolPairing", () => {
   });
 
   it("handles non-array input", () => {
-    expect(fixClaudeToolPairing(null as any)).toEqual(null);
-    expect(fixClaudeToolPairing(undefined as any)).toEqual(undefined);
+    expect(fixClaudeToolPairing(null)).toEqual(null);
+    expect(fixClaudeToolPairing(undefined)).toEqual(undefined);
   });
 });
 
@@ -1219,6 +1246,9 @@ describe("validateAndFixClaudeToolPairing", () => {
     ];
 
     const result = validateAndFixClaudeToolPairing(messages);
+    if (!result) {
+      throw new Error("expected paired messages");
+    }
     const orphans = findOrphanedToolUseIds(result);
     expect(orphans.size).toBe(0);
   });
@@ -1249,9 +1279,9 @@ describe("injectParameterSignatures", () => {
     ];
 
     const result = injectParameterSignatures(tools);
-    expect(result[0].functionDeclarations[0].description).toContain("STRICT PARAMETERS:");
-    expect(result[0].functionDeclarations[0].description).toContain("path");
-    expect(result[0].functionDeclarations[0].description).toContain("REQUIRED");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toContain("STRICT PARAMETERS:");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toContain("path");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toContain("REQUIRED");
   });
 
   it("skips injection if STRICT PARAMETERS already present", () => {
@@ -1274,7 +1304,11 @@ describe("injectParameterSignatures", () => {
     ];
 
     const result = injectParameterSignatures(tools);
-    const matches = result[0].functionDeclarations[0].description.match(/STRICT PARAMETERS/g);
+    const description = readPath(result, "0.functionDeclarations.0.description");
+    if (typeof description !== "string") {
+      throw new Error("expected description string");
+    }
+    const matches = description.match(/STRICT PARAMETERS/g);
     expect(matches).toHaveLength(1);
   });
 
@@ -1295,7 +1329,7 @@ describe("injectParameterSignatures", () => {
     ];
 
     const result = injectParameterSignatures(tools);
-    expect(result[0].functionDeclarations[0].description).toBe("A tool with no params");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toBe("A tool with no params");
   });
 
   it("handles missing parameters gracefully", () => {
@@ -1311,7 +1345,7 @@ describe("injectParameterSignatures", () => {
     ];
 
     const result = injectParameterSignatures(tools);
-    expect(result[0].functionDeclarations[0].description).toBe("No parameters defined");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toBe("No parameters defined");
   });
 
   it("returns empty array for empty input", () => {
@@ -1319,8 +1353,8 @@ describe("injectParameterSignatures", () => {
   });
 
   it("returns null/undefined as-is", () => {
-    expect(injectParameterSignatures(null as any)).toBeNull();
-    expect(injectParameterSignatures(undefined as any)).toBeUndefined();
+    expect(injectParameterSignatures(null)).toBeNull();
+    expect(injectParameterSignatures(undefined)).toBeUndefined();
   });
 });
 
@@ -1330,8 +1364,8 @@ describe("injectToolHardeningInstruction", () => {
     injectToolHardeningInstruction(payload, "CRITICAL TOOL USAGE INSTRUCTIONS: Test");
     
     expect(payload.systemInstruction).toBeDefined();
-    const instruction = payload.systemInstruction as any;
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
+    const instruction = readPath(payload, "systemInstruction");
+    expect(readPath(instruction, "parts.0.text")).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
   });
 
   it("prepends to existing system instruction parts", () => {
@@ -1342,10 +1376,10 @@ describe("injectToolHardeningInstruction", () => {
     };
     injectToolHardeningInstruction(payload, "CRITICAL TOOL USAGE INSTRUCTIONS: New");
     
-    const instruction = payload.systemInstruction as any;
-    expect(instruction.parts).toHaveLength(2);
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: New");
-    expect(instruction.parts[1].text).toBe("Existing instruction");
+    const instruction = readPath(payload, "systemInstruction");
+    expect(readPath(instruction, "parts")).toHaveLength(2);
+    expect(readPath(instruction, "parts.0.text")).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: New");
+    expect(readPath(instruction, "parts.1.text")).toBe("Existing instruction");
   });
 
   it("skips injection if CRITICAL TOOL USAGE INSTRUCTIONS already present", () => {
@@ -1356,9 +1390,9 @@ describe("injectToolHardeningInstruction", () => {
     };
     injectToolHardeningInstruction(payload, "CRITICAL TOOL USAGE INSTRUCTIONS: New");
     
-    const instruction = payload.systemInstruction as any;
-    expect(instruction.parts).toHaveLength(1);
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Already here");
+    const instruction = readPath(payload, "systemInstruction");
+    expect(readPath(instruction, "parts")).toHaveLength(1);
+    expect(readPath(instruction, "parts.0.text")).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Already here");
   });
 
   it("handles string systemInstruction", () => {
@@ -1367,10 +1401,10 @@ describe("injectToolHardeningInstruction", () => {
     };
     injectToolHardeningInstruction(payload, "CRITICAL TOOL USAGE INSTRUCTIONS: Test");
     
-    const instruction = payload.systemInstruction as any;
-    expect(instruction.parts).toHaveLength(2);
-    expect(instruction.parts[0].text).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
-    expect(instruction.parts[1].text).toBe("Existing string instruction");
+    const instruction = readPath(payload, "systemInstruction");
+    expect(readPath(instruction, "parts")).toHaveLength(2);
+    expect(readPath(instruction, "parts.0.text")).toBe("CRITICAL TOOL USAGE INSTRUCTIONS: Test");
+    expect(readPath(instruction, "parts.1.text")).toBe("Existing string instruction");
   });
 
   it("does nothing when instructionText is empty", () => {
@@ -1401,8 +1435,8 @@ describe("placeholder parameter for empty schemas", () => {
     ];
 
     const result = injectParameterSignatures(tools);
-    expect(result[0].functionDeclarations[0].description).toContain("STRICT PARAMETERS:");
-    expect(result[0].functionDeclarations[0].description).toContain("_placeholder (boolean");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toContain("STRICT PARAMETERS:");
+    expect(readPath(result, "0.functionDeclarations.0.description")).toContain("_placeholder (boolean");
   });
 });
 
@@ -1424,9 +1458,9 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.format.enum).toEqual(["text", "markdown", "html"]);
-      expect(result.properties.format.anyOf).toBeUndefined();
-      expect(result.properties.format.type).toBe("string");
+      expect(readPath(result, "properties.format.enum")).toEqual(["text", "markdown", "html"]);
+      expect(readPath(result, "properties.format.anyOf")).toBeUndefined();
+      expect(readPath(result, "properties.format.type")).toBe("string");
     });
 
     it("merges oneOf with const values into enum", () => {
@@ -1445,8 +1479,8 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.status.enum).toEqual(["pending", "active", "completed"]);
-      expect(result.properties.status.oneOf).toBeUndefined();
+      expect(readPath(result, "properties.status.enum")).toEqual(["pending", "active", "completed"]);
+      expect(readPath(result, "properties.status.oneOf")).toBeUndefined();
     });
 
     it("merges anyOf with single-value enums into combined enum", () => {
@@ -1465,7 +1499,7 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.level.enum).toEqual(["low", "medium", "high"]);
+      expect(readPath(result, "properties.level.enum")).toEqual(["low", "medium", "high"]);
     });
 
     it("merges anyOf with multi-value enums", () => {
@@ -1483,7 +1517,7 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.color.enum).toEqual(["red", "blue", "green", "yellow"]);
+      expect(readPath(result, "properties.color.enum")).toEqual(["red", "blue", "green", "yellow"]);
     });
 
     it("does not merge anyOf with complex types (not enum pattern)", () => {
@@ -1501,8 +1535,8 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.data.enum).toBeUndefined();
-      expect(result.properties.data.type).toBe("string");
+      expect(readPath(result, "properties.data.enum")).toBeUndefined();
+      expect(readPath(result, "properties.data.type")).toBe("string");
     });
 
     it("preserves parent description when merging enum", () => {
@@ -1521,8 +1555,8 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
       const result = cleanJSONSchemaForAntigravity(schema);
 
-      expect(result.properties.format.enum).toEqual(["text", "markdown"]);
-      expect(result.properties.format.description).toContain("Output format");
+      expect(readPath(result, "properties.format.enum")).toEqual(["text", "markdown"]);
+      expect(readPath(result, "properties.format.description")).toContain("Output format");
     });
   });
 
@@ -1539,10 +1573,10 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
     const result = cleanJSONSchemaForAntigravity(schema);
 
-    expect(result.properties.status.description).toContain("Allowed:");
-    expect(result.properties.status.description).toContain("active");
-    expect(result.properties.status.description).toContain("inactive");
-    expect(result.properties.status.description).toContain("pending");
+    expect(readPath(result, "properties.status.description")).toContain("Allowed:");
+    expect(readPath(result, "properties.status.description")).toContain("active");
+    expect(readPath(result, "properties.status.description")).toContain("inactive");
+    expect(readPath(result, "properties.status.description")).toContain("pending");
   });
 
   it("preserves existing enum array", () => {
@@ -1558,7 +1592,7 @@ describe("cleanJSONSchemaForAntigravity", () => {
 
     const result = cleanJSONSchemaForAntigravity(schema);
 
-    expect(result.properties.level.enum).toEqual(["low", "medium", "high"]);
+    expect(readPath(result, "properties.level.enum")).toEqual(["low", "medium", "high"]);
   });
 });
 
@@ -1778,9 +1812,8 @@ describe("deduplicateThinkingText", () => {
         },
       }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result1 = deduplicateThinkingText(chunk1, buffer) as any;
-    expect(result1.candidates[0].content.parts[0].text).toBe("Hello ");
+    const result1 = deduplicateThinkingText(chunk1, buffer);
+    expect(readPath(result1, "candidates.0.content.parts.0.text")).toBe("Hello ");
     
     const chunk2 = {
       candidates: [{
@@ -1789,9 +1822,8 @@ describe("deduplicateThinkingText", () => {
         },
       }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result2 = deduplicateThinkingText(chunk2, buffer) as any;
-    expect(result2.candidates[0].content.parts[0].text).toBe("world");
+    const result2 = deduplicateThinkingText(chunk2, buffer);
+    expect(readPath(result2, "candidates.0.content.parts.0.text")).toBe("world");
   });
 
   it("filters out empty delta parts", () => {
@@ -1816,10 +1848,9 @@ describe("deduplicateThinkingText", () => {
         },
       }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result2 = deduplicateThinkingText(chunk2, buffer) as any;
-    expect(result2.candidates[0].content.parts).toHaveLength(1);
-    expect(result2.candidates[0].content.parts[0].text).toBe("Regular text");
+    const result2 = deduplicateThinkingText(chunk2, buffer);
+    expect(readPath(result2, "candidates.0.content.parts")).toHaveLength(1);
+    expect(readPath(result2, "candidates.0.content.parts.0.text")).toBe("Regular text");
   });
 
   it("extracts delta from accumulated Claude thinking blocks", () => {
@@ -1828,16 +1859,14 @@ describe("deduplicateThinkingText", () => {
     const chunk1 = {
       content: [{ type: "thinking", thinking: "First " }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result1 = deduplicateThinkingText(chunk1, buffer) as any;
-    expect(result1.content[0].thinking).toBe("First ");
+    const result1 = deduplicateThinkingText(chunk1, buffer);
+    expect(readPath(result1, "content.0.thinking")).toBe("First ");
     
     const chunk2 = {
       content: [{ type: "thinking", thinking: "First part" }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result2 = deduplicateThinkingText(chunk2, buffer) as any;
-    expect(result2.content[0].thinking).toBe("part");
+    const result2 = deduplicateThinkingText(chunk2, buffer);
+    expect(readPath(result2, "content.0.thinking")).toBe("part");
   });
 
   it("handles new thinking content that does not start with sent text", () => {
@@ -1859,9 +1888,8 @@ describe("deduplicateThinkingText", () => {
         },
       }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result2 = deduplicateThinkingText(chunk2, buffer) as any;
-    expect(result2.candidates[0].content.parts[0].text).toBe("New thought");
+    const result2 = deduplicateThinkingText(chunk2, buffer);
+    expect(readPath(result2, "candidates.0.content.parts.0.text")).toBe("New thought");
   });
 
   it("preserves non-thinking parts unchanged", () => {
@@ -1878,10 +1906,9 @@ describe("deduplicateThinkingText", () => {
         },
       }],
     };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = deduplicateThinkingText(chunk, buffer) as any;
-    expect(result.candidates[0].content.parts[1].text).toBe("Regular text");
-    expect(result.candidates[0].content.parts[2].functionCall.name).toBe("test");
+    const result = deduplicateThinkingText(chunk, buffer);
+    expect(readPath(result, "candidates.0.content.parts.1.text")).toBe("Regular text");
+    expect(readPath(result, "candidates.0.content.parts.2.functionCall.name")).toBe("test");
   });
 
 
@@ -1974,13 +2001,16 @@ describe("sanitizeEndingModelTurn", () => {
 
     // Must append a user turn with a functionResponse (or drop the trailing call)
     expect(result.length).toBeGreaterThan(0);
-    const last = result[result.length - 1]!;
+    const last = result[result.length - 1];
+    if (!last) {
+      throw new Error("expected trailing turn");
+    }
     expect(last.role).not.toBe("model");
     if (last.role === "user" && Array.isArray(last.parts)) {
-      const hasFunctionResponse = last.parts.some(
-        (p: any) => p?.functionResponse
+      const sawFunctionResponse = last.parts.some(
+        (part: unknown) => hasFunctionResponse(part)
       );
-      expect(hasFunctionResponse).toBe(true);
+      expect(sawFunctionResponse).toBe(true);
     }
   });
 
@@ -2009,11 +2039,14 @@ describe("sanitizeEndingModelTurn", () => {
 
     const result = sanitizeEndingModelTurn(contents);
 
-    const last = result[result.length - 1]!;
+    const last = result[result.length - 1];
+    if (!last) {
+      throw new Error("expected trailing turn");
+    }
     expect(last.role).not.toBe("model");
     if (last.role === "user" && Array.isArray(last.parts)) {
       const responseCount = last.parts.filter(
-        (p: any) => p?.functionResponse
+        (part: unknown) => hasFunctionResponse(part)
       ).length;
       // One response per call, or the trailing turn was dropped entirely
       expect(responseCount).toBeGreaterThanOrEqual(1);
@@ -2040,7 +2073,10 @@ describe("sanitizeEndingModelTurn", () => {
     const result = sanitizeEndingModelTurn(contents);
 
     // Result must not end with a model turn at all
-    const last = result[result.length - 1]!;
+    const last = result[result.length - 1];
+    if (!last) {
+      throw new Error("expected trailing turn");
+    }
     expect(last.role).not.toBe("model");
   });
 });

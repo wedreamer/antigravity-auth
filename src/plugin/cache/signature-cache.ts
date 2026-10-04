@@ -314,8 +314,6 @@ export class SignatureCache {
       }
 
       const now = Date.now();
-      let loaded = 0;
-      let expired = 0;
 
       for (const [key, entry] of Object.entries(data.entries)) {
         const age = now - entry.timestamp;
@@ -324,9 +322,6 @@ export class SignatureCache {
             value: entry.value,
             timestamp: entry.timestamp,
           });
-          loaded++;
-        } else {
-          expired++;
         }
       }
 
@@ -449,13 +444,11 @@ export class SignatureCache {
    */
   private cleanupExpired(): void {
     const now = Date.now();
-    let cleaned = 0;
 
     for (const [key, entry] of this.cache.entries()) {
       const age = now - entry.timestamp;
       if (age > this.memoryTtlMs) {
         this.cache.delete(key);
-        cleaned++;
       }
     }
 

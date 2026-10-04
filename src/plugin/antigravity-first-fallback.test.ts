@@ -1,7 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountManager, type ModelFamily, type HeaderStyle } from "./accounts";
+import { AccountManager } from "./accounts";
 import type { AccountStorageV4 } from "./storage";
+
+function requireDefined<T>(value: T | undefined, label: string): T {
+  if (value === undefined) {
+    throw new Error(`expected ${label}`);
+  }
+  return value;
+}
 
 /**
  * Test: Antigravity-first fallback logic
@@ -34,11 +41,11 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Mark account 0's antigravity as rate-limited
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
 
       // Account 1 should have antigravity available
       const hasOther = manager.hasOtherAccountWithAntigravityAvailable(
-        accounts[0]!.index,
+        requireDefined(accounts[0], "account 0").index,
         "gemini",
         null
       );
@@ -60,11 +67,11 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Mark both accounts' antigravity as rate-limited
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
-      manager.markRateLimited(accounts[1]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[1], "account 1"), 60000, "gemini", "antigravity");
 
       const hasOther = manager.hasOtherAccountWithAntigravityAvailable(
-        accounts[0]!.index,
+        requireDefined(accounts[0], "account 0").index,
         "gemini",
         null
       );
@@ -86,11 +93,11 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Mark account 0's antigravity as rate-limited
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
 
       // Account 1 is disabled, so should return false
       const hasOther = manager.hasOtherAccountWithAntigravityAvailable(
-        accounts[0]!.index,
+        requireDefined(accounts[0], "account 0").index,
         "gemini",
         null
       );
@@ -112,12 +119,12 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Mark account 0's antigravity as rate-limited
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
       // Mark account 1 as cooling down
-      manager.markAccountCoolingDown(accounts[1]!, 60000, "auth-failure");
+      manager.markAccountCoolingDown(requireDefined(accounts[1], "account 1"), 60000, "auth-failure");
 
       const hasOther = manager.hasOtherAccountWithAntigravityAvailable(
-        accounts[0]!.index,
+        requireDefined(accounts[0], "account 0").index,
         "gemini",
         null
       );
@@ -139,11 +146,11 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Mark account 0's antigravity as rate-limited for gemini-3-pro
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity", "gemini-3-pro");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity", "gemini-3-pro");
 
       // Account 1 should have antigravity available for gemini-3-pro
       const hasOther = manager.hasOtherAccountWithAntigravityAvailable(
-        accounts[0]!.index,
+        requireDefined(accounts[0], "account 0").index,
         "gemini",
         "gemini-3-pro"
       );
@@ -191,7 +198,7 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Account 0's antigravity is rate-limited but gemini-cli is available
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
       
       // Account 1's antigravity is available
       // (not rate-limited for antigravity)
@@ -206,8 +213,11 @@ describe("Antigravity-first fallback", () => {
         "antigravity"
       );
 
-      expect(nextAccount?.index).toBe(1);
-      expect(manager.isRateLimitedForHeaderStyle(nextAccount!, "gemini", "antigravity")).toBe(false);
+      if (!nextAccount) {
+        throw new Error("expected next account");
+      }
+      expect(nextAccount.index).toBe(1);
+      expect(manager.isRateLimitedForHeaderStyle(nextAccount, "gemini", "antigravity")).toBe(false);
     });
 
     it("should report no other account available when ALL accounts are rate-limited", () => {
@@ -225,8 +235,8 @@ describe("Antigravity-first fallback", () => {
       const accounts = manager.getAccounts();
       
       // Both accounts are rate-limited
-      manager.markRateLimited(accounts[0]!, 60000, "gemini", "antigravity");
-      manager.markRateLimited(accounts[1]!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[0], "account 0"), 60000, "gemini", "antigravity");
+      manager.markRateLimited(requireDefined(accounts[1], "account 1"), 60000, "gemini", "antigravity");
 
       // Verify no account has antigravity available
       expect(manager.hasOtherAccountWithAntigravityAvailable(0, "gemini", null)).toBe(false);

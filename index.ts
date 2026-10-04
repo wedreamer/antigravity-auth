@@ -3,6 +3,7 @@ import {
   GoogleOAuthPlugin,
 } from "./src/plugin.js";
 import { setupV2, type V2Context } from "./src/v2/adapter.js";
+import type { PluginContext } from "./src/plugin/types.js";
 
 /**
  * Official Dual-Compatibility Plugin for OpenCode v1 and v2.
@@ -14,7 +15,7 @@ export default {
   async setup(ctx: V2Context) {
     return await setupV2(ctx);
   },
-  async server(ctx: any) {
+  async server(ctx: PluginContext) {
     return await AntigravityCLIOAuthPlugin(ctx);
   },
 };

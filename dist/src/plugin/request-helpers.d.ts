@@ -1,11 +1,15 @@
 import type { GoogleSearchConfig } from "./transform/types";
+interface JsonRecord {
+    [key: string]: JsonValue;
+}
+type JsonValue = string | number | boolean | null | undefined | JsonValue[] | JsonRecord;
 /**
  * Cleans a JSON schema for Antigravity API compatibility.
  * Transforms unsupported features into description hints while preserving semantic information.
  *
  * Ported from CLIProxyAPI's CleanJSONSchemaForAntigravity (gemini_schema.go)
  */
-export declare function cleanJSONSchemaForAntigravity(schema: any): any;
+export declare function cleanJSONSchemaForAntigravity(schema: JsonValue): JsonValue;
 export interface AntigravityApiError {
     code?: number;
     message?: string;
@@ -84,7 +88,7 @@ export declare function extractVariantThinkingConfig(providerOptions: Record<str
  * For Claude thinking models, we keep thinking enabled even in multi-turn conversations.
  * The filterUnsignedThinkingBlocks function will handle signature validation/restoration.
  */
-export declare function resolveThinkingConfig(userConfig: ThinkingConfig | undefined, isThinkingModel: boolean, _isClaudeModel: boolean, _hasAssistantHistory: boolean): ThinkingConfig | undefined;
+export declare function resolveThinkingConfig(userConfig: ThinkingConfig | undefined, isThinkingModel: boolean, isClaudeModel: boolean, hasAssistantHistory: boolean): ThinkingConfig | undefined;
 /**
  * Filters thinking blocks from contents unless the signature matches our cache.
  * Attempts to restore signatures from cache for thinking blocks that lack signatures.
@@ -93,11 +97,11 @@ export declare function resolveThinkingConfig(userConfig: ThinkingConfig | undef
  * @param sessionId - Optional session ID for signature cache lookup
  * @param getCachedSignatureFn - Optional function to retrieve cached signatures
  */
-export declare function filterUnsignedThinkingBlocks(contents: any[], sessionId?: string, getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined, isClaudeModel?: boolean): any[];
+export declare function filterUnsignedThinkingBlocks(contents: JsonRecord[], sessionId?: string, getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined, isClaudeModel?: boolean): JsonRecord[];
 /**
  * Filters thinking blocks from Anthropic-style messages[] payloads using cached signatures.
  */
-export declare function filterMessagesThinkingBlocks(messages: any[], sessionId?: string, getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined, isClaudeModel?: boolean): any[];
+export declare function filterMessagesThinkingBlocks(messages: JsonRecord[], sessionId?: string, getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined, isClaudeModel?: boolean): JsonRecord[];
 export declare function deepFilterThinkingBlocks(payload: unknown, sessionId?: string, getCachedSignatureFn?: (sessionId: string, text: string) => string | undefined, isClaudeModel?: boolean): unknown;
 /**
  * Transforms thinking/reasoning content in response parts to OpenCode's expected format.
@@ -172,14 +176,14 @@ export declare function recursivelyParseJsonStrings(obj: unknown, skipParseKeys?
  * @param contents - Array of Gemini-style content messages
  * @returns Fixed contents array with matched tool responses
  */
-export declare function fixToolResponseGrouping(contents: any[]): any[];
+export declare function fixToolResponseGrouping(contents: JsonRecord[]): JsonRecord[];
 /**
  * Checks if contents have any tool call/response ID mismatches.
  *
  * @param contents - Array of Gemini-style content messages
  * @returns Object with mismatch details
  */
-export declare function detectToolIdMismatches(contents: any[]): {
+export declare function detectToolIdMismatches(contents: JsonRecord[]): {
     hasMismatches: boolean;
     expectedIds: string[];
     foundIds: string[];
@@ -190,7 +194,7 @@ export declare function detectToolIdMismatches(contents: any[]): {
  * Find orphaned tool_use IDs (tool_use without matching tool_result).
  * Works on Claude format messages.
  */
-export declare function findOrphanedToolUseIds(messages: any[]): Set<string>;
+export declare function findOrphanedToolUseIds(messages: JsonRecord[]): Set<string>;
 /**
  * Fix orphaned tool_use blocks in Claude format messages.
  * Mirrors fixToolResponseGrouping() but for Claude's messages[] format.
@@ -202,12 +206,12 @@ export declare function findOrphanedToolUseIds(messages: any[]): Set<string>;
  * @param messages - Claude format messages array
  * @returns Fixed messages with placeholder tool_results for orphans
  */
-export declare function fixClaudeToolPairing(messages: any[]): any[];
+export declare function fixClaudeToolPairing(messages: JsonRecord[] | null | undefined): JsonRecord[] | null | undefined;
 /**
  * Validate and fix tool pairing with fallback nuclear option.
  * Defense in depth: tries gentle fix first, then nuclear removal.
  */
-export declare function validateAndFixClaudeToolPairing(messages: any[]): any[];
+export declare function validateAndFixClaudeToolPairing(messages: JsonRecord[] | null | undefined): JsonRecord[] | null | undefined;
 /**
  * Injects parameter signatures into tool descriptions.
  * Port of LLM-API-Key-Proxy's _inject_signature_into_descriptions()
@@ -220,7 +224,7 @@ export declare function validateAndFixClaudeToolPairing(messages: any[]): any[];
  * @param promptTemplate - Template for the signature (default: "\\n\\nSTRICT PARAMETERS: {params}.")
  * @returns Modified tools array with signatures injected
  */
-export declare function injectParameterSignatures(tools: any[], promptTemplate?: string): any[];
+export declare function injectParameterSignatures(tools: JsonRecord[] | null | undefined, promptTemplate?: string): JsonRecord[] | null | undefined;
 /**
  * Injects a tool hardening system instruction into the request payload.
  * Port of LLM-API-Key-Proxy's _inject_tool_hardening_instruction()
@@ -236,8 +240,8 @@ export declare function injectToolHardeningInstruction(payload: Record<string, u
  * @param contents - Gemini-style contents array
  * @returns Object with modified contents and pending call IDs map
  */
-export declare function assignToolIdsToContents(contents: any[]): {
-    contents: any[];
+export declare function assignToolIdsToContents(contents: JsonRecord[]): {
+    contents: JsonRecord[];
     pendingCallIdsByName: Map<string, string[]>;
     toolCallCounter: number;
 };
@@ -249,7 +253,7 @@ export declare function assignToolIdsToContents(contents: any[]): {
  * @param pendingCallIdsByName - Map of function names to pending call IDs
  * @returns Modified contents with matched response IDs
  */
-export declare function matchResponseIdsToContents(contents: any[], pendingCallIdsByName: Map<string, string[]>): any[];
+export declare function matchResponseIdsToContents(contents: JsonRecord[], pendingCallIdsByName: Map<string, string[]>): JsonRecord[];
 /**
  * Applies all tool fixes to a request payload.
  * This includes:
@@ -288,7 +292,7 @@ export declare function applyToolPairingFixes(payload: Record<string, unknown>, 
  * rejected the request with "Requests ending with a model turn are not supported".
  * @returns Sanitized contents that no longer end with an orphaned model turn
  */
-export declare function sanitizeEndingModelTurn(contents: any[], force?: boolean): any[];
+export declare function sanitizeEndingModelTurn(contents: JsonRecord[], force?: boolean): JsonRecord[];
 /**
  * Creates a synthetic Claude SSE streaming response with error content.
  *
@@ -302,4 +306,5 @@ export declare function sanitizeEndingModelTurn(contents: any[], force?: boolean
  * @returns A Response object with synthetic SSE stream
  */
 export declare function createSyntheticErrorResponse(errorMessage: string, requestedModel?: string): Response;
+export {};
 //# sourceMappingURL=request-helpers.d.ts.map

@@ -53,7 +53,6 @@ const ERROR_PATTERNS = [
 ];
 
 const GEMINI_FLASH = "google/antigravity-gemini-3.7-flash";
-const GEMINI_FLASH_CLI_QUOTA = "google/antigravity-gemini-3.5-flash";
 const CLAUDE_SONNET = "google/antigravity-claude-sonnet-4-6";
 const CLAUDE_OPUS = "google/antigravity-claude-opus-4-6-thinking";
 
@@ -223,7 +222,10 @@ function generateEnduranceTest(turnCount: number): TurnConfig[] {
   ];
 
   for (let i = 0; i < turnCount; i++) {
-    const template = prompts[i % prompts.length]!;
+    const template = prompts[i % prompts.length];
+    if (!template) {
+      throw new Error("missing prompt template");
+    }
     const prompt = template.prompt
       .replace(/\{i\}/g, String(i + 1))
       .replace(/\{n\}/g, String(i + 1));
@@ -432,7 +434,10 @@ async function runMultiTurnTest(test: MultiTurnTest): Promise<TestResult> {
   let turnsCompleted = 0;
 
   for (let index = 0; index < test.turns.length; index++) {
-    const turn = test.turns[index]!;
+    const turn = test.turns[index];
+    if (turn === undefined) {
+      throw new Error("missing turn");
+    }
     const prompt = typeof turn === "string" ? turn : turn.prompt;
     const model = typeof turn === "string" ? test.model : (turn.model ?? test.model);
     const turnStart = Date.now();
@@ -497,7 +502,8 @@ function parseArgs(): {
   const args = process.argv.slice(2);
   const getArg = (flag: string): string | null => {
     const idx = args.indexOf(flag);
-    return idx !== -1 && args[idx + 1] !== undefined ? args[idx + 1]! : null;
+    const value = args[idx + 1];
+    return idx !== -1 && value !== undefined ? value : null;
   };
 
   let suite: TestSuite = "all";

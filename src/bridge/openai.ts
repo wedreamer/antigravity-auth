@@ -1,4 +1,4 @@
-import type { ChatRequest, CompletionResult, OpenAIMessage, OpenAITool } from "./types.ts"
+import type { ChatRequest, CompletionResult, OpenAIMessage, OpenAITool } from "./types"
 
 export const BRIDGE_MODELS = [
   "gemini-3.8-flash",

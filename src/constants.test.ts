@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   getRandomizedHeaders,
   ANTIGRAVITY_HEADERS,
-  type HeaderSet,
 } from "./constants.ts";
 
 describe("ANTIGRAVITY_HEADERS", () => {
@@ -30,8 +29,11 @@ describe("getRandomizedHeaders", () => {
     it("aligns Client-Metadata platform with User-Agent platform", () => {
       for (let i = 0; i < 50; i++) {
         const headers = getRandomizedHeaders("antigravity");
-        const ua = headers["User-Agent"]!;
-        const meta = headers["Client-Metadata"]!;
+        const ua = headers["User-Agent"];
+        const meta = headers["Client-Metadata"];
+        if (ua === undefined || meta === undefined) {
+          throw new Error("expected User-Agent and Client-Metadata");
+        }
 
         if (ua.includes("windows")) {
           expect(meta).toContain('"platform":"WINDOWS"');

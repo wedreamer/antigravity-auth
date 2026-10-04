@@ -16,7 +16,10 @@ describe("Model-specific Gemini quota", () => {
   });
 
   it("blocks only the specific Gemini model when markRateLimited is called with a model", () => {
-    const account = manager.getCurrentAccountForFamily("gemini")!;
+    const account = manager.getCurrentAccountForFamily("gemini");
+    if (!account) {
+      throw new Error("expected gemini account");
+    }
     const modelPro = "gemini-1.5-pro";
     const modelFlash = "gemini-1.5-flash";
 
@@ -34,7 +37,10 @@ describe("Model-specific Gemini quota", () => {
   });
 
   it("tracks rate limits only for the specific model", () => {
-    const account = manager.getCurrentAccountForFamily("gemini")!;
+    const account = manager.getCurrentAccountForFamily("gemini");
+    if (!account) {
+      throw new Error("expected gemini account");
+    }
     const modelPro = "gemini-1.5-pro";
     const modelFlash = "gemini-1.5-flash";
 
@@ -51,7 +57,10 @@ describe("Model-specific Gemini quota", () => {
   it("returns null when all header styles are exhausted for the specific model on a single account", () => {
     const manager2 = new AccountManager(auth);
     
-    const account = manager2.getCurrentAccountForFamily("gemini")!;
+    const account = manager2.getCurrentAccountForFamily("gemini");
+    if (!account) {
+      throw new Error("expected gemini account");
+    }
     const modelPro = "gemini-1.5-pro";
     const modelFlash = "gemini-1.5-flash";
 
@@ -67,7 +76,10 @@ describe("Model-specific Gemini quota", () => {
   });
 
   it("base family rate limit blocks all models in that family", () => {
-    const account = manager.getCurrentAccountForFamily("gemini")!;
+    const account = manager.getCurrentAccountForFamily("gemini");
+    if (!account) {
+      throw new Error("expected gemini account");
+    }
     const modelPro = "gemini-1.5-pro";
 
     // Mark base gemini-antigravity as rate limited

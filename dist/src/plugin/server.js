@@ -66,18 +66,6 @@ function isWSL() {
     }
 }
 /**
- * Detect remote/SSH environment where localhost may not be accessible from browser.
- */
-function isRemoteEnvironment() {
-    if (process.env.SSH_CLIENT || process.env.SSH_TTY || process.env.SSH_CONNECTION) {
-        return true;
-    }
-    if (process.env.REMOTE_CONTAINERS || process.env.CODESPACES) {
-        return true;
-    }
-    return false;
-}
-/**
  * Determine the best bind address for the OAuth callback server.
  *
  * Priority:
@@ -117,22 +105,22 @@ export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
     let settled = false;
     let resolveCallback;
     let rejectCallback;
-    let timeoutHandle;
+    const timeoutRef = { handle: undefined };
     const callbackPromise = new Promise((resolve, reject) => {
         resolveCallback = (url) => {
             if (settled)
                 return;
             settled = true;
-            if (timeoutHandle)
-                clearTimeout(timeoutHandle);
+            if (timeoutRef.handle)
+                clearTimeout(timeoutRef.handle);
             resolve(url);
         };
         rejectCallback = (error) => {
             if (settled)
                 return;
             settled = true;
-            if (timeoutHandle)
-                clearTimeout(timeoutHandle);
+            if (timeoutRef.handle)
+                clearTimeout(timeoutRef.handle);
             reject(error);
         };
     });
@@ -261,10 +249,10 @@ export async function startOAuthListener({ timeoutMs = 5 * 60 * 1000 } = {}) {
     </script>
   </body>
 </html>`;
-    timeoutHandle = setTimeout(() => {
+    timeoutRef.handle = setTimeout(() => {
         rejectCallback(new Error("Timed out waiting for OAuth callback"));
     }, timeoutMs);
-    timeoutHandle.unref?.();
+    timeoutRef.handle.unref?.();
     const server = createServer((request, response) => {
         if (!request.url) {
             response.writeHead(400, { "Content-Type": "text/plain" });

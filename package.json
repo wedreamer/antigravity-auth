@@ -26,7 +26,7 @@
     "claude"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.11.0"
   },
   "files": [
     "dist/",
@@ -37,6 +37,7 @@
     "build": "tsc -p tsconfig.build.json",
     "build:schema": "npx tsx script/build-schema.ts",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -48,22 +49,25 @@
     "pack:astrbot": "rm -rf dist/astrbot_plugin_antigravity.zip && mkdir -p dist && cd astrbot_plugin_antigravity && zip -r ../dist/astrbot_plugin_antigravity.zip . -x '*__pycache__*' -x '.git'"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": ">=5.9.0"
   },
   "devDependencies": {
-    "@types/node": "26.6.1",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.1",
     "@types/proper-lockfile": "^4.1.4",
-    "@vitest/coverage-v8": "5.0.1",
-    "@vitest/ui": "5.0.1",
-    "typescript": "^5.0.0",
-    "vitest": "5.0.1",
-    "zod-to-json-schema": "^3.25.2"
+    "@vitest/coverage-v8": "5.0.3",
+    "@vitest/ui": "5.0.3",
+    "eslint": "^10.12.0",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.71.0",
+    "vitest": "5.0.3"
   },
   "dependencies": {
     "@openauthjs/openauth": "^0.4.3",
-    "@opencode-ai/plugin": "1.18.31",
+    "@opencode-ai/plugin": "1.18.34",
     "proper-lockfile": "^4.1.2",
-    "undici": "^7.30.0",
+    "undici": "^8.11.2",
     "xdg-basedir": "^5.1.0",
     "zod": "4.6.5"
   }

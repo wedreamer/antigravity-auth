@@ -1,5 +1,6 @@
 import { AntigravityCLIOAuthPlugin, GoogleOAuthPlugin } from "./src/plugin.js";
 import { type V2Context } from "./src/v2/adapter.js";
+import type { PluginContext } from "./src/plugin/types.js";
 /**
  * Official Dual-Compatibility Plugin for OpenCode v1 and v2.
  * - In v1 (1.18.29+): Invoked via export default .server(ctx)
@@ -7,8 +8,8 @@ import { type V2Context } from "./src/v2/adapter.js";
  */
 declare const _default: {
     id: string;
-    setup(ctx: V2Context): Promise<void | import("./src/v2/adapter.js").CleanupFunction>;
-    server(ctx: any): Promise<import("./src/plugin/types.js").PluginResult>;
+    setup(ctx: V2Context): Promise<import("./src/v2/adapter.js").CleanupFunction>;
+    server(ctx: PluginContext): Promise<import("./src/plugin/types.js").PluginResult>;
 };
 export default _default;
 export { AntigravityCLIOAuthPlugin, GoogleOAuthPlugin, };

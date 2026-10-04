@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AccountManager, type ModelFamily, type HeaderStyle, parseRateLimitReason, calculateBackoffMs, type RateLimitReason, resolveQuotaGroup } from "./accounts";
+import { AccountManager, type ModelFamily, parseRateLimitReason, calculateBackoffMs, resolveQuotaGroup } from "./accounts";
 import type { AccountStorageV4 } from "./storage";
 import type { OAuthAuthDetails } from "./types";
 
@@ -13,6 +13,13 @@ vi.mock("./storage", async (importOriginal) => {
     saveAccountsReplace: vi.fn().mockResolvedValue(undefined),
   };
 });
+
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) {
+    throw new Error("expected value");
+  }
+  return value;
+}
 
 describe("AccountManager", () => {
   beforeEach(() => {
@@ -71,7 +78,7 @@ describe("AccountManager", () => {
     const family: ModelFamily = "claude";
 
     const firstAccount = manager.getCurrentOrNextForFamily(family);
-    manager.markRateLimited(firstAccount!, 60000, family);
+    manager.markRateLimited(required(firstAccount), 60000, family);
 
     const secondAccount = manager.getCurrentOrNextForFamily(family);
     expect(secondAccount?.index).toBe(1);
@@ -204,7 +211,7 @@ describe("AccountManager", () => {
     const family: ModelFamily = "claude";
     const account = manager.getCurrentOrNextForFamily(family);
 
-    account!.rateLimitResetTimes[family] = Date.now() - 10000;
+    required(account).rateLimitResetTimes[family] = Date.now() - 10000;
 
     const next = manager.getCurrentOrNextForFamily(family);
     expect(next?.parts.refreshToken).toBe("r1");
@@ -227,8 +234,8 @@ describe("AccountManager", () => {
     const family: ModelFamily = "claude";
     const accounts = manager.getAccounts();
 
-    manager.markRateLimited(accounts[0]!, 30000, family);
-    manager.markRateLimited(accounts[1]!, 60000, family);
+    manager.markRateLimited(required(accounts[0]), 30000, family);
+    manager.markRateLimited(required(accounts[1]), 60000, family);
 
     expect(manager.getMinWaitTimeForFamily(family)).toBe(30000);
   });
@@ -247,7 +254,7 @@ describe("AccountManager", () => {
     const account = manager.getCurrentOrNextForFamily("claude");
     expect(account?.index).toBe(0);
 
-    manager.markRateLimited(account!, 60000, "claude");
+    manager.markRateLimited(required(account), 60000, "claude");
 
     expect(manager.getMinWaitTimeForFamily("claude")).toBeGreaterThan(0);
     expect(manager.getMinWaitTimeForFamily("gemini")).toBe(0);
@@ -284,7 +291,7 @@ describe("AccountManager", () => {
     const third = manager.getCurrentOrNextForFamily(family);
     expect(third?.parts.refreshToken).toBe("r1");
 
-    manager.markRateLimited(first!, 60_000, family);
+    manager.markRateLimited(required(first), 60_000, family);
 
     const fourth = manager.getCurrentOrNextForFamily(family);
     expect(fourth?.parts.refreshToken).toBe("r2");
@@ -313,7 +320,7 @@ describe("AccountManager", () => {
     const picked = manager.getCurrentOrNextForFamily(family);
     expect(picked?.parts.refreshToken).toBe("r2");
 
-    manager.removeAccount(picked!);
+    manager.removeAccount(required(picked));
     expect(manager.getAccountCount()).toBe(2);
 
     const next = manager.getNextForFamily(family);
@@ -384,9 +391,9 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 60000, "gemini", "antigravity");
 
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(true);
+      expect(manager.isRateLimitedForHeaderStyle(required(account), "gemini", "antigravity")).toBe(true);
     });
 
     it("getAvailableHeaderStyle returns antigravity first for Gemini", () => {
@@ -401,7 +408,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBe("antigravity");
+      expect(manager.getAvailableHeaderStyle(required(account), "gemini")).toBe("antigravity");
     });
 
     it("getAvailableHeaderStyle returns null when antigravity is rate-limited", () => {
@@ -416,9 +423,9 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 60000, "gemini", "antigravity");
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBeNull();
+      expect(manager.getAvailableHeaderStyle(required(account), "gemini")).toBeNull();
     });
 
     it("getAvailableHeaderStyle returns null when both header styles are rate-limited", () => {
@@ -433,10 +440,10 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
-      manager.markRateLimited(account!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 60000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 60000, "gemini", "antigravity");
 
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBeNull();
+      expect(manager.getAvailableHeaderStyle(required(account), "gemini")).toBeNull();
     });
 
     it("getAvailableHeaderStyle always returns antigravity for Claude", () => {
@@ -451,7 +458,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("claude");
 
-      expect(manager.getAvailableHeaderStyle(account!, "claude")).toBe("antigravity");
+      expect(manager.getAvailableHeaderStyle(required(account), "claude")).toBe("antigravity");
     });
 
     it("getAvailableHeaderStyle returns null for Claude when rate-limited", () => {
@@ -466,9 +473,9 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("claude");
 
-      manager.markRateLimited(account!, 60000, "claude", "antigravity");
+      manager.markRateLimited(required(account), 60000, "claude", "antigravity");
 
-      expect(manager.getAvailableHeaderStyle(account!, "claude")).toBeNull();
+      expect(manager.getAvailableHeaderStyle(required(account), "claude")).toBeNull();
     });
 
     it("Gemini rate limits expire correctly", () => {
@@ -486,14 +493,14 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 30000, "gemini", "antigravity");
 
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(true);
+      expect(manager.isRateLimitedForHeaderStyle(required(account), "gemini", "antigravity")).toBe(true);
 
       vi.setSystemTime(new Date(35000));
 
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
-      expect(manager.getAvailableHeaderStyle(account!, "gemini")).toBe("antigravity");
+      expect(manager.isRateLimitedForHeaderStyle(required(account), "gemini", "antigravity")).toBe(false);
+      expect(manager.getAvailableHeaderStyle(required(account), "gemini")).toBe("antigravity");
     });
 
     it("getMinWaitTimeForFamily returns correct wait time for Gemini", () => {
@@ -511,7 +518,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity");
+      manager.markRateLimited(required(account), 30000, "gemini", "antigravity");
 
       expect(manager.getMinWaitTimeForFamily("gemini")).toBe(30000);
     });
@@ -533,7 +540,7 @@ describe("AccountManager", () => {
       const claudeAccount = manager.getCurrentOrNextForFamily("claude");
       expect(claudeAccount?.parts.refreshToken).toBe("r1");
 
-      manager.markRateLimited(claudeAccount!, 60000, "claude");
+      manager.markRateLimited(required(claudeAccount), 60000, "claude");
 
       const nextClaude = manager.getCurrentOrNextForFamily("claude");
       expect(nextClaude?.parts.refreshToken).toBe("r2");
@@ -558,13 +565,13 @@ describe("AccountManager", () => {
       expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
 
       const claude1 = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude1!, 60000, "claude");
+      manager.markRateLimited(required(claude1), 60000, "claude");
 
       expect(manager.getCurrentOrNextForFamily("claude")?.parts.refreshToken).toBe("r2");
       expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
 
       const claude2 = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude2!, 60000, "claude");
+      manager.markRateLimited(required(claude2), 60000, "claude");
 
       expect(manager.getCurrentOrNextForFamily("claude")?.parts.refreshToken).toBe("r3");
       expect(manager.getCurrentOrNextForFamily("gemini")?.parts.refreshToken).toBe("r1");
@@ -583,7 +590,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
 
       const claude = manager.getCurrentOrNextForFamily("claude");
-      manager.markRateLimited(claude!, 60000, "claude");
+      manager.markRateLimited(required(claude), 60000, "claude");
       manager.getCurrentOrNextForFamily("claude");
 
       expect(manager.getCurrentAccountForFamily("claude")?.index).toBe(1);
@@ -641,9 +648,9 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("claude");
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
+      manager.markAccountCoolingDown(required(account), 30000, "auth-failure");
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
+      expect(manager.isAccountCoolingDown(required(account))).toBe(true);
     });
 
     it("cooldown expires after duration", () => {
@@ -661,13 +668,13 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("claude");
 
-      manager.markAccountCoolingDown(account!, 30000, "network-error");
+      manager.markAccountCoolingDown(required(account), 30000, "network-error");
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
+      expect(manager.isAccountCoolingDown(required(account))).toBe(true);
 
       vi.setSystemTime(new Date(35000));
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(false);
+      expect(manager.isAccountCoolingDown(required(account))).toBe(false);
     });
 
     it("clearAccountCooldown removes cooldown state", () => {
@@ -682,11 +689,11 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("claude");
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
+      manager.markAccountCoolingDown(required(account), 30000, "auth-failure");
+      expect(manager.isAccountCoolingDown(required(account))).toBe(true);
 
-      manager.clearAccountCooldown(account!);
-      expect(manager.isAccountCoolingDown(account!)).toBe(false);
+      manager.clearAccountCooldown(required(account));
+      expect(manager.isAccountCoolingDown(required(account))).toBe(false);
     });
 
     it("cooling down account is skipped in getCurrentOrNextForFamily", () => {
@@ -702,7 +709,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account1 = manager.getCurrentOrNextForFamily("claude");
 
-      manager.markAccountCoolingDown(account1!, 30000, "project-error");
+      manager.markAccountCoolingDown(required(account1), 30000, "project-error");
 
       const next = manager.getCurrentOrNextForFamily("claude");
       expect(next?.parts.refreshToken).toBe("r2");
@@ -720,11 +727,11 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markAccountCoolingDown(account!, 30000, "auth-failure");
+      manager.markAccountCoolingDown(required(account), 30000, "auth-failure");
 
-      expect(manager.isAccountCoolingDown(account!)).toBe(true);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
-      expect(manager.isRateLimitedForHeaderStyle(account!, "gemini", "antigravity")).toBe(false);
+      expect(manager.isAccountCoolingDown(required(account))).toBe(true);
+      expect(manager.isRateLimitedForHeaderStyle(required(account), "gemini", "antigravity")).toBe(false);
+      expect(manager.isRateLimitedForHeaderStyle(required(account), "gemini", "antigravity")).toBe(false);
     });
   });
 
@@ -766,7 +773,7 @@ describe("AccountManager", () => {
         const first = manager.getCurrentOrNextForFamily("claude", null, "sticky");
         expect(first?.index).toBe(0);
 
-        manager.markRateLimited(first!, 60000, "claude");
+        manager.markRateLimited(required(first), 60000, "claude");
 
         const second = manager.getCurrentOrNextForFamily("claude", null, "sticky");
         expect(second?.index).toBe(1);
@@ -809,7 +816,7 @@ describe("AccountManager", () => {
 
         const manager = new AccountManager(undefined, stored);
         const accounts = manager.getAccounts();
-        manager.markRateLimited(accounts[1]!, 60000, "claude");
+        manager.markRateLimited(required(accounts[1]), 60000, "claude");
 
         const first = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
         const second = manager.getCurrentOrNextForFamily("claude", null, "round-robin");
@@ -899,7 +906,7 @@ describe("AccountManager", () => {
 
         const manager = new AccountManager(undefined, stored);
         const accounts = manager.getAccounts();
-        manager.markRateLimited(accounts[0]!, 60000, "claude");
+        manager.markRateLimited(required(accounts[0]), 60000, "claude");
 
         const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
         expect(selected?.index).toBe(1);
@@ -917,7 +924,7 @@ describe("AccountManager", () => {
 
         const manager = new AccountManager(undefined, stored);
         const accounts = manager.getAccounts();
-        manager.markAccountCoolingDown(accounts[0]!, 60000, "auth-failure");
+        manager.markAccountCoolingDown(required(accounts[0]), 60000, "auth-failure");
 
         const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
         expect(selected?.index).toBe(1);
@@ -958,7 +965,7 @@ describe("AccountManager", () => {
         const selected = manager.getCurrentOrNextForFamily("claude", null, "hybrid");
 
         expect(selected).not.toBeNull();
-        expect(selected!.lastUsed).toBe(5000);
+        expect(required(selected).lastUsed).toBe(5000);
         expect(manager.getCurrentAccountForFamily("claude")?.index).toBe(selected?.index);
       });
     });
@@ -978,7 +985,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       manager.markTouchedForQuota(account, "claude:antigravity");
 
@@ -995,7 +1002,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       expect(manager.isFreshForQuota(account, "claude:antigravity")).toBe(true);
     });
@@ -1013,7 +1020,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       manager.markTouchedForQuota(account, "claude:antigravity");
 
@@ -1033,7 +1040,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       manager.markTouchedForQuota(account, "claude");
       expect(manager.isFreshForQuota(account, "claude")).toBe(false);
@@ -1056,7 +1063,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       expect(account.consecutiveFailures).toBeUndefined();
     });
@@ -1071,7 +1078,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       account.consecutiveFailures = (account.consecutiveFailures ?? 0) + 1;
       expect(account.consecutiveFailures).toBe(1);
@@ -1099,9 +1106,9 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const firstAccount = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(firstAccount!, 60000, "gemini", "antigravity");
+      manager.markRateLimited(required(firstAccount), 60000, "gemini", "antigravity");
 
-      expect(manager.isRateLimitedForHeaderStyle(firstAccount!, "gemini", "antigravity")).toBe(true);
+      expect(manager.isRateLimitedForHeaderStyle(required(firstAccount), "gemini", "antigravity")).toBe(true);
 
       const nextAccount = manager.getCurrentOrNextForFamily(
         "gemini", 
@@ -1211,7 +1218,7 @@ describe("AccountManager", () => {
       const manager = new AccountManager(undefined, stored);
       const account = manager.getCurrentOrNextForFamily("gemini");
 
-      manager.markRateLimited(account!, 30000, "gemini", "antigravity", "gemini-3-pro-image");
+      manager.markRateLimited(required(account), 30000, "gemini", "antigravity", "gemini-3-pro-image");
 
       expect(
         manager.getMinWaitTimeForFamily(
@@ -1322,7 +1329,7 @@ describe("AccountManager", () => {
         };
 
         const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const account = required(manager.getAccounts()[0]);
 
         const backoff1 = manager.markRateLimitedWithReason(
           account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED"
@@ -1358,7 +1365,7 @@ describe("AccountManager", () => {
         };
 
         const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const account = required(manager.getAccounts()[0]);
 
         const backoff = manager.markRateLimitedWithReason(
           account, "gemini", "antigravity", null, "QUOTA_EXHAUSTED", 180_000
@@ -1388,7 +1395,7 @@ describe("AccountManager", () => {
         };
 
         const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const account = required(manager.getAccounts()[0]);
         const weekMs = 6.5 * 24 * 60 * 60 * 1000;
         const backoff = manager.markRateLimitedWithReason(
           account, "claude", "antigravity", "claude-sonnet-4-6", "QUOTA_EXHAUSTED", weekMs
@@ -1420,7 +1427,7 @@ describe("AccountManager", () => {
         };
 
         const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const account = required(manager.getAccounts()[0]);
         const weekMs = 6.5 * 24 * 60 * 60 * 1000;
         const backoff = manager.markRateLimitedWithReason(
           account,
@@ -1451,7 +1458,7 @@ describe("AccountManager", () => {
         };
 
         const manager = new AccountManager(undefined, stored);
-        const account = manager.getAccounts()[0]!;
+        const account = required(manager.getAccounts()[0]);
 
         account.consecutiveFailures = 5;
         manager.markRequestSuccess(account);
@@ -1524,15 +1531,15 @@ describe("AccountManager", () => {
 
         const manager = new AccountManager(undefined, stored);
         const accounts = manager.getAccounts();
-        accounts[0]!.consecutiveFailures = 3;
-        accounts[1]!.consecutiveFailures = 2;
+        required(accounts[0]).consecutiveFailures = 3;
+        required(accounts[1]).consecutiveFailures = 2;
 
         manager.clearAllRateLimitsForFamily("gemini");
 
-        expect(accounts[0]!.rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
-        expect(accounts[1]!.rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
-        expect(accounts[0]!.consecutiveFailures).toBe(0);
-        expect(accounts[1]!.consecutiveFailures).toBe(0);
+        expect(required(accounts[0]).rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
+        expect(required(accounts[1]).rateLimitResetTimes["gemini-antigravity"]).toBeUndefined();
+        expect(required(accounts[0]).consecutiveFailures).toBe(0);
+        expect(required(accounts[1]).consecutiveFailures).toBe(0);
 
         vi.useRealTimers();
       });
@@ -1556,16 +1563,16 @@ describe("AccountManager", () => {
       const account = manager.getCurrentOrNextForFamily("claude");
 
       // First failure
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1);
-      expect(account!.lastFailureTime).toBe(0);
+      manager.markRateLimitedWithReason(required(account), "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
+      expect(required(account).consecutiveFailures).toBe(1);
+      expect(required(account).lastFailureTime).toBe(0);
 
       // Advance time past TTL (1 hour = 3600s)
       vi.setSystemTime(new Date(3700_000)); // 3700 seconds later
 
       // Next failure should reset count because TTL expired
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1); // Reset to 0, then +1
+      manager.markRateLimitedWithReason(required(account), "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
+      expect(required(account).consecutiveFailures).toBe(1); // Reset to 0, then +1
 
       vi.useRealTimers();
     });
@@ -1586,15 +1593,15 @@ describe("AccountManager", () => {
       const account = manager.getCurrentOrNextForFamily("claude");
 
       // First failure
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(1);
+      manager.markRateLimitedWithReason(required(account), "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
+      expect(required(account).consecutiveFailures).toBe(1);
 
       // Advance time within TTL
       vi.setSystemTime(new Date(1800_000)); // 30 minutes later (within 1 hour TTL)
 
       // Next failure should increment
-      manager.markRateLimitedWithReason(account!, "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
-      expect(account!.consecutiveFailures).toBe(2);
+      manager.markRateLimitedWithReason(required(account), "claude", "antigravity", null, "QUOTA_EXHAUSTED", null, 3600_000);
+      expect(required(account).consecutiveFailures).toBe(2);
 
       vi.useRealTimers();
     });
@@ -1614,14 +1621,14 @@ describe("AccountManager", () => {
       const account = manager.getCurrentOrNextForFamily("claude");
       
       // Set initial fingerprint
-      const originalFingerprint = account!.fingerprint;
+      const originalFingerprint = required(account).fingerprint;
       
       // Regenerate
       const newFingerprint = manager.regenerateAccountFingerprint(0);
       
       expect(newFingerprint).not.toBeNull();
       expect(newFingerprint).not.toEqual(originalFingerprint);
-      expect(account!.fingerprintHistory?.length).toBeGreaterThanOrEqual(0);
+      expect(required(account).fingerprintHistory?.length).toBeGreaterThanOrEqual(0);
     });
 
     it("restoreAccountFingerprint restores from history", () => {
@@ -1853,7 +1860,16 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const acc = (manager as any).accounts[0];
+      const internals = manager as unknown as {
+        accounts: Array<{
+          cachedQuota?: unknown;
+          cachedQuotaUpdatedAt?: number;
+        }>;
+      };
+      const acc = internals.accounts[0];
+      if (acc === undefined) {
+        throw new Error("expected account");
+      }
       acc.cachedQuota = { claude: { remainingFraction: 0.05, modelCount: 1 } };
       acc.cachedQuotaUpdatedAt = undefined;
 
@@ -1990,7 +2006,7 @@ describe("AccountManager", () => {
       };
 
       const manager = new AccountManager(undefined, stored);
-      const account = manager.getAccounts()[0]!;
+      const account = required(manager.getAccounts()[0]);
 
       const absoluteFutureMs = 100_000 + 7_200_000; // 2 hours in future
       const wait = manager.markRateLimitedWithReason(

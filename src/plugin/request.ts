@@ -18,7 +18,6 @@ import {
 import { defaultSignatureStore } from "./stores/signature-store";
 import {
   DEBUG_MESSAGE_PREFIX,
-  isDebugEnabled,
   isDebugTuiEnabled,
   logAntigravityDebugResponse,
   logCacheStats,
@@ -60,10 +59,7 @@ import {
 import { sanitizeCrossModelPayloadInPlace } from "./transform/cross-model-sanitizer";
 import { isGemini3Model, isImageGenerationModel, buildImageGenerationConfig, applyGeminiTransforms } from "./transform";
 import {
-  resolveModelWithTier,
-  resolveModelWithVariant,
   resolveModelForHeaderStyle,
-  resolveAntigravityGemini35FlashBackendModel,
   resolveAntigravityGemini36FlashBackendModel,
   resolveAntigravityGemini37FlashBackendModel,
   resolveAntigravityGemini38FlashBackendModel,
@@ -118,6 +114,13 @@ function hashConversationSeed(seed: string): string {
   return crypto.createHash("sha256").update(seed, "utf8").digest("hex").slice(0, 16);
 }
 
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  if (value === null || typeof value !== "object") {
+    return undefined;
+  }
+  return value as Record<string, unknown>;
+}
+
 function extractTextFromContent(content: unknown): string {
   if (typeof content === "string") {
     return content;
@@ -126,35 +129,36 @@ function extractTextFromContent(content: unknown): string {
     return "";
   }
   for (const block of content) {
-    if (!block || typeof block !== "object") {
+    const anyBlock = asRecord(block);
+    if (!anyBlock) {
       continue;
     }
-    const anyBlock = block as any;
     if (typeof anyBlock.text === "string") {
       return anyBlock.text;
     }
-    if (anyBlock.text && typeof anyBlock.text === "object" && typeof anyBlock.text.text === "string") {
-      return anyBlock.text.text;
+    const nestedText = asRecord(anyBlock.text);
+    if (nestedText && typeof nestedText.text === "string") {
+      return nestedText.text;
     }
   }
   return "";
 }
 
-function extractConversationSeedFromMessages(messages: any[]): string {
-  const system = messages.find((message) => message?.role === "system");
-  const users = messages.filter((message) => message?.role === "user");
+function extractConversationSeedFromMessages(messages: unknown[]): string {
+  const system = messages.find((message) => asRecord(message)?.role === "system");
+  const users = messages.filter((message) => asRecord(message)?.role === "user");
   const firstUser = users[0];
   const lastUser = users.length > 0 ? users[users.length - 1] : undefined;
-  const systemText = system ? extractTextFromContent(system.content) : "";
-  const userText = firstUser ? extractTextFromContent(firstUser.content) : "";
-  const fallbackUserText = !userText && lastUser ? extractTextFromContent(lastUser.content) : "";
+  const systemText = system ? extractTextFromContent(asRecord(system)?.content) : "";
+  const userText = firstUser ? extractTextFromContent(asRecord(firstUser)?.content) : "";
+  const fallbackUserText = !userText && lastUser ? extractTextFromContent(asRecord(lastUser)?.content) : "";
   return [systemText, userText || fallbackUserText].filter(Boolean).join("|");
 }
 
-function extractConversationSeedFromContents(contents: any[]): string {
-  const users = contents.filter((content) => content?.role === "user");
-  const firstUser = users[0];
-  const lastUser = users.length > 0 ? users[users.length - 1] : undefined;
+function extractConversationSeedFromContents(contents: unknown[]): string {
+  const users = contents.filter((content) => asRecord(content)?.role === "user");
+  const firstUser = asRecord(users[0]);
+  const lastUser = asRecord(users.length > 0 ? users[users.length - 1] : undefined);
   const primaryUser = firstUser && Array.isArray(firstUser.parts) ? extractTextFromContent(firstUser.parts) : "";
   if (primaryUser) {
     return primaryUser;
@@ -166,20 +170,20 @@ function extractConversationSeedFromContents(contents: any[]): string {
 }
 
 function resolveConversationKey(requestPayload: Record<string, unknown>): string | undefined {
-  const anyPayload = requestPayload as any;
+  const metadata = asRecord(requestPayload.metadata);
   const candidates = [
-    anyPayload.conversationId,
-    anyPayload.conversation_id,
-    anyPayload.thread_id,
-    anyPayload.threadId,
-    anyPayload.chat_id,
-    anyPayload.chatId,
-    anyPayload.sessionId,
-    anyPayload.session_id,
-    anyPayload.metadata?.conversation_id,
-    anyPayload.metadata?.conversationId,
-    anyPayload.metadata?.thread_id,
-    anyPayload.metadata?.threadId,
+    requestPayload.conversationId,
+    requestPayload.conversation_id,
+    requestPayload.thread_id,
+    requestPayload.threadId,
+    requestPayload.chat_id,
+    requestPayload.chatId,
+    requestPayload.sessionId,
+    requestPayload.session_id,
+    metadata?.conversation_id,
+    metadata?.conversationId,
+    metadata?.thread_id,
+    metadata?.threadId,
   ];
 
   for (const candidate of candidates) {
@@ -188,16 +192,17 @@ function resolveConversationKey(requestPayload: Record<string, unknown>): string
     }
   }
 
+  const systemInstruction = requestPayload.systemInstruction;
   const systemSeed = extractTextFromContent(
-    (anyPayload.systemInstruction as any)?.parts
-    ?? anyPayload.systemInstruction
-    ?? anyPayload.system
-    ?? anyPayload.system_instruction,
+    asRecord(systemInstruction)?.parts
+    ?? systemInstruction
+    ?? requestPayload.system
+    ?? requestPayload.system_instruction,
   );
-  const messageSeed = Array.isArray(anyPayload.messages)
-    ? extractConversationSeedFromMessages(anyPayload.messages)
-    : Array.isArray(anyPayload.contents)
-      ? extractConversationSeedFromContents(anyPayload.contents)
+  const messageSeed = Array.isArray(requestPayload.messages)
+    ? extractConversationSeedFromMessages(requestPayload.messages)
+    : Array.isArray(requestPayload.contents)
+      ? extractConversationSeedFromContents(requestPayload.contents)
       : "";
   const seed = [systemSeed, messageSeed].filter(Boolean).join("|");
   if (!seed) {
@@ -240,21 +245,19 @@ function injectDebugThinking(response: unknown, debugText: string): unknown {
     return response;
   }
 
-  const resp = response as any;
+  const resp = asRecord(response);
+  if (!resp) {
+    return response;
+  }
 
   if (Array.isArray(resp.candidates) && resp.candidates.length > 0) {
     const candidates = resp.candidates.slice();
-    const first = candidates[0];
+    const first = asRecord(candidates[0]);
+    const content = first ? asRecord(first.content) : undefined;
 
-    if (
-      first &&
-      typeof first === "object" &&
-      first.content &&
-      typeof first.content === "object" &&
-      Array.isArray(first.content.parts)
-    ) {
-      const parts = [{ thought: true, text: debugText }, ...first.content.parts];
-      candidates[0] = { ...first, content: { ...first.content, parts } };
+    if (first && content && Array.isArray(content.parts)) {
+      const parts = [{ thought: true, text: debugText }, ...content.parts];
+      candidates[0] = { ...first, content: { ...content, parts } };
       return { ...resp, candidates };
     }
 
@@ -290,7 +293,10 @@ function stripInjectedDebugFromParts(parts: unknown): unknown {
       return true;
     }
 
-    const record = part as any;
+    const record = asRecord(part);
+    if (!record) {
+      return true;
+    }
     const text =
       typeof record.text === "string"
         ? record.text
@@ -308,34 +314,34 @@ function stripInjectedDebugFromParts(parts: unknown): unknown {
 }
 
 function stripInjectedDebugFromRequestPayload(payload: Record<string, unknown>): void {
-  const anyPayload = payload as any;
-
-  if (Array.isArray(anyPayload.contents)) {
-    anyPayload.contents = anyPayload.contents.map((content: any) => {
-      if (!content || typeof content !== "object") {
+  if (Array.isArray(payload.contents)) {
+    payload.contents = payload.contents.map((content: unknown) => {
+      const record = asRecord(content);
+      if (!record) {
         return content;
       }
 
-      if (Array.isArray(content.parts)) {
-        return { ...content, parts: stripInjectedDebugFromParts(content.parts) };
+      if (Array.isArray(record.parts)) {
+        return { ...record, parts: stripInjectedDebugFromParts(record.parts) };
       }
 
-      if (Array.isArray(content.content)) {
-        return { ...content, content: stripInjectedDebugFromParts(content.content) };
+      if (Array.isArray(record.content)) {
+        return { ...record, content: stripInjectedDebugFromParts(record.content) };
       }
 
       return content;
     });
   }
 
-  if (Array.isArray(anyPayload.messages)) {
-    anyPayload.messages = anyPayload.messages.map((message: any) => {
-      if (!message || typeof message !== "object") {
+  if (Array.isArray(payload.messages)) {
+    payload.messages = payload.messages.map((message: unknown) => {
+      const record = asRecord(message);
+      if (!record) {
         return message;
       }
 
-      if (Array.isArray(message.content)) {
-        return { ...message, content: stripInjectedDebugFromParts(message.content) };
+      if (Array.isArray(record.content)) {
+        return { ...record, content: stripInjectedDebugFromParts(record.content) };
       }
 
       return message;
@@ -363,10 +369,8 @@ function isValidRequestPart(part: unknown): boolean {
 }
 
 function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>): void {
-  const anyPayload = payload as any;
-
-  if (Array.isArray(anyPayload.contents)) {
-    anyPayload.contents = anyPayload.contents
+  if (Array.isArray(payload.contents)) {
+    payload.contents = payload.contents
       .map((content: unknown) => {
         if (!content || typeof content !== "object") {
           return null;
@@ -376,9 +380,10 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
         const rawParts = Array.isArray(contentRecord.parts) ? contentRecord.parts : [];
         let foundFirstFunctionCall = false;
 
-        const sanitizedParts = rawParts.filter(isValidRequestPart).map((part: any) => {
-          if (part && typeof part === "object" && part.functionCall) {
-            let sig = part.thoughtSignature || part.thought_signature;
+        const sanitizedParts = rawParts.filter(isValidRequestPart).map((part: unknown) => {
+          if (part && typeof part === "object" && (part as Record<string, unknown>).functionCall) {
+            const partRecord = part as Record<string, unknown>;
+            let sig = partRecord.thoughtSignature || partRecord.thought_signature;
 
             // Only the first functionCall part in a block should have the signature.
             // If it's the first one and missing a valid signature, inject the sentinel
@@ -393,11 +398,11 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
             }
 
             if (sig) {
-              return { ...part, thought_signature: sig, thoughtSignature: sig };
+              return { ...partRecord, thought_signature: sig, thoughtSignature: sig };
             }
-            
+
             // If not the first part, just return the part without adding any signature keys
-            const newPart = { ...part };
+            const newPart = { ...partRecord };
             delete newPart.thoughtSignature;
             delete newPart.thought_signature;
             return newPart;
@@ -417,7 +422,7 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
       .filter((content: unknown): content is Record<string, unknown> => content !== null);
   }
 
-  const systemInstruction = anyPayload.systemInstruction;
+  const systemInstruction = payload.systemInstruction;
   if (systemInstruction && typeof systemInstruction === "object" && !Array.isArray(systemInstruction)) {
     const sys = systemInstruction as Record<string, unknown>;
     if (Array.isArray(sys.parts)) {
@@ -425,21 +430,22 @@ function sanitizeRequestPayloadForAntigravity(payload: Record<string, unknown>):
       if (sanitizedSystemParts.length > 0) {
         sys.parts = sanitizedSystemParts;
       } else {
-        delete anyPayload.systemInstruction;
+        delete payload.systemInstruction;
       }
     }
   }
 }
 
-function isGeminiToolUsePart(part: any): boolean {
-  return !!(part && typeof part === "object" && (part.functionCall || part.tool_use || part.toolUse));
+function isGeminiToolUsePart(part: unknown): boolean {
+  const record = asRecord(part);
+  return !!(record && (record.functionCall || record.tool_use || record.toolUse));
 }
 
-function isGeminiThinkingPart(part: any): boolean {
+function isGeminiThinkingPart(part: unknown): boolean {
+  const record = asRecord(part);
   return !!(
-    part &&
-    typeof part === "object" &&
-    (part.thought === true || part.type === "thinking" || part.type === "reasoning")
+    record &&
+    (record.thought === true || record.type === "thinking" || record.type === "reasoning")
   );
 }
 
@@ -448,28 +454,30 @@ function isGeminiThinkingPart(part: any): boolean {
 // Reference: LLM-API-Key-Proxy uses this pattern for Gemini 3 tool calls.
 const SENTINEL_SIGNATURE = "skip_thought_signature_validator";
 
-function getThinkingPartText(part: any): string {
-  if (!part || typeof part !== "object") {
+function getThinkingPartText(part: unknown): string {
+  const record = asRecord(part);
+  if (!record) {
     return "";
   }
 
-  if (typeof part.text === "string") {
-    return part.text;
+  if (typeof record.text === "string") {
+    return record.text;
   }
 
-  if (typeof part.thinking === "string") {
-    return part.thinking;
+  if (typeof record.thinking === "string") {
+    return record.thinking;
   }
 
   return "";
 }
 
-function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
-  if (!part || typeof part !== "object") {
+function hasCachedMatchingSignature(part: unknown, sessionId: string): boolean {
+  const record = asRecord(part);
+  if (!record) {
     return false;
   }
 
-  const text = getThinkingPartText(part);
+  const text = getThinkingPartText(record);
   if (!text) {
     return false;
   }
@@ -479,11 +487,11 @@ function hasCachedMatchingSignature(part: any, sessionId: string): boolean {
     return false;
   }
 
-  if (part.thought === true) {
-    return part.thoughtSignature === expectedSignature;
+  if (record.thought === true) {
+    return record.thoughtSignature === expectedSignature;
   }
 
-  return part.signature === expectedSignature;
+  return record.signature === expectedSignature;
 }
 
 function isRealSignature(value: unknown): boolean {
@@ -493,8 +501,9 @@ function isRealSignature(value: unknown): boolean {
     && value !== SKIP_THOUGHT_SIGNATURE;
 }
 
-function ensureThoughtSignature(part: any, sessionId: string): any {
-  if (!part || typeof part !== "object") {
+function ensureThoughtSignature(part: unknown, sessionId: string): unknown {
+  const record = asRecord(part);
+  if (!record) {
     return part;
   }
 
@@ -502,35 +511,36 @@ function ensureThoughtSignature(part: any, sessionId: string): any {
     return part;
   }
 
-  const text = getThinkingPartText(part);
+  const text = getThinkingPartText(record);
   if (!text) {
     return part;
   }
 
-  if (part.thought === true) {
-    if (isRealSignature(part.thoughtSignature)) return part;
-    return { ...part, thoughtSignature: SENTINEL_SIGNATURE };
+  if (record.thought === true) {
+    if (isRealSignature(record.thoughtSignature)) return part;
+    return { ...record, thoughtSignature: SENTINEL_SIGNATURE };
   }
 
-  if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking") {
-    if (isRealSignature(part.signature) || isRealSignature(part.thoughtSignature)) return part;
-    return { ...part, signature: SENTINEL_SIGNATURE };
+  if (record.type === "thinking" || record.type === "reasoning" || record.type === "redacted_thinking") {
+    if (isRealSignature(record.signature) || isRealSignature(record.thoughtSignature)) return part;
+    return { ...record, signature: SENTINEL_SIGNATURE };
   }
 
   return part;
 }
 
-function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
-  if (!part || typeof part !== "object") {
+function hasSignedThinkingPart(part: unknown, sessionId?: string): boolean {
+  const record = asRecord(part);
+  if (!record) {
     return false;
   }
 
-  if (part.thought === true) {
-    if (part.thoughtSignature === SENTINEL_SIGNATURE || part.thoughtSignature === SKIP_THOUGHT_SIGNATURE) {
+  if (record.thought === true) {
+    if (record.thoughtSignature === SENTINEL_SIGNATURE || record.thoughtSignature === SKIP_THOUGHT_SIGNATURE) {
       return true;
     }
 
-    if (typeof part.thoughtSignature !== "string" || part.thoughtSignature.length < MIN_SIGNATURE_LENGTH) {
+    if (typeof record.thoughtSignature !== "string" || record.thoughtSignature.length < MIN_SIGNATURE_LENGTH) {
       return false;
     }
 
@@ -538,15 +548,15 @@ function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
       return true;
     }
 
-    return hasCachedMatchingSignature(part, sessionId);
+    return hasCachedMatchingSignature(record, sessionId);
   }
 
-  if (part.type === "thinking" || part.type === "reasoning" || part.type === "redacted_thinking") {
-    if (part.signature === SENTINEL_SIGNATURE || part.signature === SKIP_THOUGHT_SIGNATURE) {
+  if (record.type === "thinking" || record.type === "reasoning" || record.type === "redacted_thinking") {
+    if (record.signature === SENTINEL_SIGNATURE || record.signature === SKIP_THOUGHT_SIGNATURE) {
       return true;
     }
 
-    if (typeof part.signature !== "string" || part.signature.length < MIN_SIGNATURE_LENGTH) {
+    if (typeof record.signature !== "string" || record.signature.length < MIN_SIGNATURE_LENGTH) {
       return false;
     }
 
@@ -554,24 +564,25 @@ function hasSignedThinkingPart(part: any, sessionId?: string): boolean {
       return true;
     }
 
-    return hasCachedMatchingSignature(part, sessionId);
+    return hasCachedMatchingSignature(record, sessionId);
   }
 
   return false;
 }
 
-function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSessionKey: string): any[] {
-  return contents.map((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
+function ensureThinkingBeforeToolUseInContents(contents: unknown[], signatureSessionKey: string): unknown[] {
+  return contents.map((content: unknown) => {
+    const record = asRecord(content);
+    if (!record || !Array.isArray(record.parts)) {
       return content;
     }
 
-    const role = content.role;
+    const role = record.role;
     if (role !== "model" && role !== "assistant") {
       return content;
     }
 
-    const parts = content.parts as any[];
+    const parts: unknown[] = record.parts;
     const hasToolUse = parts.some(isGeminiToolUsePart);
     if (!hasToolUse) {
       return content;
@@ -582,7 +593,7 @@ function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSession
     const hasSignedThinking = thinkingParts.some((part) => hasSignedThinkingPart(part, signatureSessionKey));
 
     if (hasSignedThinking) {
-      return { ...content, parts: [...thinkingParts, ...otherParts] };
+      return { ...record, parts: [...thinkingParts, ...otherParts] };
     }
 
     const lastThinking = defaultSignatureStore.get(signatureSessionKey);
@@ -591,7 +602,7 @@ function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSession
       // Claude requires valid signatures, and we can't fake them
       // Return only tool_use parts without any thinking to avoid signature validation errors
       log.debug("Stripping thinking from tool_use content (no valid cached signature)", { signatureSessionKey });
-      return { ...content, parts: otherParts };
+      return { ...record, parts: otherParts };
     }
 
     const injected = {
@@ -600,20 +611,21 @@ function ensureThinkingBeforeToolUseInContents(contents: any[], signatureSession
       thoughtSignature: SENTINEL_SIGNATURE,
     };
 
-    return { ...content, parts: [injected, ...otherParts] };
+    return { ...record, parts: [injected, ...otherParts] };
   });
 }
 
-function ensureMessageThinkingSignature(block: any, sessionId: string): any {
-  if (!block || typeof block !== "object") {
+function ensureMessageThinkingSignature(block: unknown, sessionId: string): unknown {
+  const record = asRecord(block);
+  if (!record) {
     return block;
   }
 
-  if (block.type !== "thinking" && block.type !== "redacted_thinking") {
+  if (record.type !== "thinking" && record.type !== "redacted_thinking") {
     return block;
   }
 
-  const text = getThinkingPartText(block);
+  const text = getThinkingPartText(record);
   if (!text) {
     return block;
   }
@@ -622,79 +634,98 @@ function ensureMessageThinkingSignature(block: any, sessionId: string): any {
     return block;
   }
 
-  return { ...block, signature: SKIP_THOUGHT_SIGNATURE };
+  return { ...record, signature: SKIP_THOUGHT_SIGNATURE };
 }
 
-function hasToolUseInContents(contents: any[]): boolean {
-  return contents.some((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
+function hasToolUseInContents(contents: unknown[]): boolean {
+  return contents.some((content: unknown) => {
+    const record = asRecord(content);
+    if (!record || !Array.isArray(record.parts)) {
       return false;
     }
-    return (content.parts as any[]).some(isGeminiToolUsePart);
+    const parts: unknown[] = record.parts;
+    return parts.some(isGeminiToolUsePart);
   });
 }
 
-function hasSignedThinkingInContents(contents: any[], sessionId?: string): boolean {
-  return contents.some((content: any) => {
-    if (!content || typeof content !== "object" || !Array.isArray(content.parts)) {
+function hasSignedThinkingInContents(contents: unknown[], sessionId?: string): boolean {
+  return contents.some((content: unknown) => {
+    const record = asRecord(content);
+    if (!record || !Array.isArray(record.parts)) {
       return false;
     }
-    return (content.parts as any[]).some((part) => hasSignedThinkingPart(part, sessionId));
+    const parts: unknown[] = record.parts;
+    return parts.some((part) => hasSignedThinkingPart(part, sessionId));
   });
 }
 
-function hasToolUseInMessages(messages: any[]): boolean {
-  return messages.some((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
+function hasToolUseInMessages(messages: unknown[]): boolean {
+  return messages.some((message: unknown) => {
+    const record = asRecord(message);
+    if (!record || !Array.isArray(record.content)) {
       return false;
     }
-    return (message.content as any[]).some(
-      (block) => block && typeof block === "object" && (block.type === "tool_use" || block.type === "tool_result"),
-    );
+    const blocks: unknown[] = record.content;
+    return blocks.some((block) => {
+      const blockRecord = asRecord(block);
+      return !!blockRecord && (blockRecord.type === "tool_use" || blockRecord.type === "tool_result");
+    });
   });
 }
 
-function hasSignedThinkingInMessages(messages: any[], sessionId?: string): boolean {
-  return messages.some((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
+function hasSignedThinkingInMessages(messages: unknown[], sessionId?: string): boolean {
+  return messages.some((message: unknown) => {
+    const record = asRecord(message);
+    if (!record || !Array.isArray(record.content)) {
       return false;
     }
-    return (message.content as any[]).some((block) => hasSignedThinkingPart(block, sessionId));
+    const blocks: unknown[] = record.content;
+    return blocks.some((block) => hasSignedThinkingPart(block, sessionId));
   });
 }
 
-function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSessionKey: string): any[] {
-  return messages.map((message: any) => {
-    if (!message || typeof message !== "object" || !Array.isArray(message.content)) {
+function ensureThinkingBeforeToolUseInMessages(messages: unknown[], signatureSessionKey: string): unknown[] {
+  return messages.map((message: unknown) => {
+    const record = asRecord(message);
+    if (!record || !Array.isArray(record.content)) {
       return message;
     }
 
-    if (message.role !== "assistant") {
+    if (record.role !== "assistant") {
       return message;
     }
 
-    const blocks = message.content as any[];
-    const hasToolUse = blocks.some((b) => b && typeof b === "object" && (b.type === "tool_use" || b.type === "tool_result"));
+    const blocks: unknown[] = record.content;
+    const hasToolUse = blocks.some((b) => {
+      const blockRecord = asRecord(b);
+      return !!blockRecord && (blockRecord.type === "tool_use" || blockRecord.type === "tool_result");
+    });
     if (!hasToolUse) {
       return message;
     }
 
     const thinkingBlocks = blocks
-      .filter((b) => b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking"))
+      .filter((b) => {
+        const blockRecord = asRecord(b);
+        return !!blockRecord && (blockRecord.type === "thinking" || blockRecord.type === "redacted_thinking");
+      })
       .map((b) => ensureMessageThinkingSignature(b, signatureSessionKey));
 
-    const otherBlocks = blocks.filter((b) => !(b && typeof b === "object" && (b.type === "thinking" || b.type === "redacted_thinking")));
+    const otherBlocks = blocks.filter((b) => {
+      const blockRecord = asRecord(b);
+      return !(blockRecord && (blockRecord.type === "thinking" || blockRecord.type === "redacted_thinking"));
+    });
     const hasSignedThinking = thinkingBlocks.some((block) => hasSignedThinkingPart(block, signatureSessionKey));
 
     if (hasSignedThinking) {
-      return { ...message, content: [...thinkingBlocks, ...otherBlocks] };
+      return { ...record, content: [...thinkingBlocks, ...otherBlocks] };
     }
 
     const lastThinking = defaultSignatureStore.get(signatureSessionKey);
     if (!lastThinking) {
       // No cached signature available - use sentinel to bypass validation
       // This handles cache miss scenarios (restart, session mismatch, expiry)
-      const existingThinking = thinkingBlocks[0];
+      const existingThinking = asRecord(thinkingBlocks[0]);
       const thinkingText = existingThinking?.thinking || existingThinking?.text || "";
       log.debug("Injecting sentinel signature (cache miss)", { signatureSessionKey });
       const sentinelBlock = {
@@ -702,7 +733,7 @@ function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSession
         thinking: thinkingText,
         signature: SKIP_THOUGHT_SIGNATURE,
       };
-      return { ...message, content: [sentinelBlock, ...otherBlocks] };
+      return { ...record, content: [sentinelBlock, ...otherBlocks] };
     }
 
     const injected = {
@@ -711,7 +742,7 @@ function ensureThinkingBeforeToolUseInMessages(messages: any[], signatureSession
       signature: SKIP_THOUGHT_SIGNATURE,
     };
 
-    return { ...message, content: [injected, ...otherBlocks] };
+    return { ...record, content: [injected, ...otherBlocks] };
   });
 }
 
@@ -885,7 +916,6 @@ export function prepareAntigravityRequest(
 
   let body = baseInit.body;
   if (typeof baseInit.body === "string" && baseInit.body) {
-    try {
       const parsedBody = JSON.parse(baseInit.body) as Record<string, unknown>;
       const isWrapped = typeof parsedBody.project === "string" && "request" in parsedBody;
 
@@ -923,7 +953,7 @@ export function prepareAntigravityRequest(
 
         if (requestRoot && typeof requestRoot === "object") {
           requestObjects.push(requestRoot as Record<string, unknown>);
-          const nested = (requestRoot as any).request;
+          const nested = (requestRoot as Record<string, unknown>).request;
           if (nested && typeof nested === "object") {
             requestObjects.push(nested as Record<string, unknown>);
           }
@@ -941,8 +971,8 @@ export function prepareAntigravityRequest(
 
         for (const req of requestObjects) {
           // Use stable session ID for signature caching across multi-turn conversations
-          (req as any).sessionId = signatureSessionKey;
-          stripInjectedDebugFromRequestPayload(req as Record<string, unknown>);
+          req.sessionId = signatureSessionKey;
+          stripInjectedDebugFromRequestPayload(req);
 
           if (isClaude) {
             // Step 0: Sanitize cross-model metadata (strips Gemini signatures when sending to Claude)
@@ -951,35 +981,35 @@ export function prepareAntigravityRequest(
             // Step 1: Strip corrupted/unsigned thinking blocks FIRST
             deepFilterThinkingBlocks(req, signatureSessionKey, getCachedSignature, true);
 
-            if (enableClaudePromptAutoCaching && (req as any).cache_control === undefined) {
-              (req as any).cache_control = { type: "ephemeral" };
+            if (enableClaudePromptAutoCaching && req.cache_control === undefined) {
+              req.cache_control = { type: "ephemeral" };
             }
 
             // Step 2: THEN inject signed thinking from cache (after stripping)
-            if (isClaudeThinking && keepThinkingEnabled && Array.isArray((req as any).contents)) {
-              (req as any).contents = ensureThinkingBeforeToolUseInContents((req as any).contents, signatureSessionKey);
+            if (isClaudeThinking && keepThinkingEnabled && Array.isArray(req.contents)) {
+              req.contents = ensureThinkingBeforeToolUseInContents(req.contents, signatureSessionKey);
             }
-            if (isClaudeThinking && keepThinkingEnabled && Array.isArray((req as any).messages)) {
-              (req as any).messages = ensureThinkingBeforeToolUseInMessages((req as any).messages, signatureSessionKey);
+            if (isClaudeThinking && keepThinkingEnabled && Array.isArray(req.messages)) {
+              req.messages = ensureThinkingBeforeToolUseInMessages(req.messages, signatureSessionKey);
             }
 
             // Step 3: Apply tool pairing fixes (ID assignment, response matching, orphan recovery)
-            applyToolPairingFixes(req as Record<string, unknown>, true);
-          } else if (Array.isArray((req as any).contents)) {
+            applyToolPairingFixes(req, true);
+          } else if (Array.isArray(req.contents)) {
             // Gemini models: sanitize trailing model turns with dangling
             // functionCalls (400 "Requests ending with a model turn are not supported").
-            (req as any).contents = sanitizeEndingModelTurn((req as any).contents, forceModelTurnFix);
+            req.contents = sanitizeEndingModelTurn(req.contents, forceModelTurnFix);
           }
         }
 
         if (isClaudeThinking && keepThinkingEnabled && sessionId) {
           const hasToolUse = requestObjects.some((req) =>
-            (Array.isArray((req as any).contents) && hasToolUseInContents((req as any).contents)) ||
-            (Array.isArray((req as any).messages) && hasToolUseInMessages((req as any).messages)),
+            (Array.isArray(req.contents) && hasToolUseInContents(req.contents)) ||
+            (Array.isArray(req.messages) && hasToolUseInMessages(req.messages)),
           );
           const hasSignedThinking = requestObjects.some((req) =>
-            (Array.isArray((req as any).contents) && hasSignedThinkingInContents((req as any).contents, signatureSessionKey)) ||
-            (Array.isArray((req as any).messages) && hasSignedThinkingInMessages((req as any).messages, signatureSessionKey)),
+            (Array.isArray(req.contents) && hasSignedThinkingInContents(req.contents, signatureSessionKey)) ||
+            (Array.isArray(req.messages) && hasSignedThinkingInMessages(req.messages, signatureSessionKey)),
           );
           const hasCachedThinking = defaultSignatureStore.has(signatureSessionKey);
           needsSignedThinkingWarmup = hasToolUse && !hasSignedThinking && !hasCachedThinking;
@@ -998,7 +1028,7 @@ export function prepareAntigravityRequest(
         );
         const isGemini3 = effectiveModel.toLowerCase().includes("gemini-3");
 
-        log.debug(`[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? "none"} variantLevel=${variantConfig?.thinkingLevel ?? "none"} variantBudget=${variantConfig?.thinkingBudget ?? "none"} providerOptions.google=${JSON.stringify((requestPayload.providerOptions as any)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify((rawGenerationConfig as any)?.thinkingConfig ?? null)}`);
+        log.debug(`[ThinkingResolution] rawModel=${rawModel} resolvedModel=${effectiveModel} resolvedTier=${tierThinkingLevel ?? "none"} variantLevel=${variantConfig?.thinkingLevel ?? "none"} variantBudget=${variantConfig?.thinkingBudget ?? "none"} providerOptions.google=${JSON.stringify(asRecord(requestPayload.providerOptions)?.google ?? null)} generationConfig.thinkingConfig=${JSON.stringify(rawGenerationConfig?.thinkingConfig ?? null)}`);
 
         if (variantConfig?.thinkingLevel && isGemini3) {
           // Gemini 3 native format - use thinkingLevel directly
@@ -1055,7 +1085,10 @@ export function prepareAntigravityRequest(
         const isImageModel = isImageGenerationModel(effectiveModel);
         const userThinkingConfig = isImageModel ? undefined : extractThinkingConfig(requestPayload, rawGenerationConfig, extraBody);
         const hasAssistantHistory = Array.isArray(requestPayload.contents) &&
-          requestPayload.contents.some((c: any) => c?.role === "model" || c?.role === "assistant");
+          requestPayload.contents.some((c: unknown) => {
+            const role = asRecord(c)?.role;
+            return role === "model" || role === "assistant";
+          });
 
         // Claude Sonnet 4.6 is non-thinking only.
         // Ignore any client-provided thinkingConfig for this model.
@@ -1238,11 +1271,11 @@ export function prepareAntigravityRequest(
 
         if (hasTools) {
           if (isClaude) {
-            const functionDeclarations: any[] = [];
-            const passthroughTools: any[] = [];
+            const functionDeclarations: unknown[] = [];
+            const passthroughTools: unknown[] = [];
 
-            const normalizeSchema = (schema: any) => {
-              const createPlaceholderSchema = (base: any = {}) => ({
+            const normalizeSchema = (schema: unknown) => {
+              const createPlaceholderSchema = (base: Record<string, unknown> = {}) => ({
                 ...base,
                 type: "object",
                 properties: {
@@ -1259,7 +1292,9 @@ export function prepareAntigravityRequest(
                 return createPlaceholderSchema();
               }
 
-              const cleaned = cleanJSONSchemaForAntigravity(schema);
+              const cleaned = cleanJSONSchemaForAntigravity(
+                schema as Parameters<typeof cleanJSONSchemaForAntigravity>[0],
+              );
 
               if (!cleaned || typeof cleaned !== "object" || Array.isArray(cleaned)) {
                 toolDebugMissing += 1;
@@ -1290,40 +1325,45 @@ export function prepareAntigravityRequest(
               return cleaned;
             };
 
-            (requestPayload.tools as any[]).forEach((tool: any) => {
-              const pushDeclaration = (decl: any, source: string) => {
+            const claudeTools = Array.isArray(requestPayload.tools) ? requestPayload.tools : [];
+            claudeTools.forEach((tool: unknown) => {
+              const toolRecord = tool as Record<string, unknown>;
+              const toolFunction = asRecord(toolRecord.function);
+              const toolCustom = asRecord(toolRecord.custom);
+              const pushDeclaration = (decl: unknown, source: string) => {
+                const declRecord = asRecord(decl);
                 const schema =
-                  decl?.parameters ||
-                  decl?.parametersJsonSchema ||
-                  decl?.input_schema ||
-                  decl?.inputSchema ||
-                  tool.parameters ||
-                  tool.parametersJsonSchema ||
-                  tool.input_schema ||
-                  tool.inputSchema ||
-                  tool.function?.parameters ||
-                  tool.function?.parametersJsonSchema ||
-                  tool.function?.input_schema ||
-                  tool.function?.inputSchema ||
-                  tool.custom?.parameters ||
-                  tool.custom?.parametersJsonSchema ||
-                  tool.custom?.input_schema;
+                  declRecord?.parameters ||
+                  declRecord?.parametersJsonSchema ||
+                  declRecord?.input_schema ||
+                  declRecord?.inputSchema ||
+                  toolRecord.parameters ||
+                  toolRecord.parametersJsonSchema ||
+                  toolRecord.input_schema ||
+                  toolRecord.inputSchema ||
+                  toolFunction?.parameters ||
+                  toolFunction?.parametersJsonSchema ||
+                  toolFunction?.input_schema ||
+                  toolFunction?.inputSchema ||
+                  toolCustom?.parameters ||
+                  toolCustom?.parametersJsonSchema ||
+                  toolCustom?.input_schema;
 
                 let name =
-                  decl?.name ||
-                  tool.name ||
-                  tool.function?.name ||
-                  tool.custom?.name ||
+                  declRecord?.name ||
+                  toolRecord.name ||
+                  toolFunction?.name ||
+                  toolCustom?.name ||
                   `tool-${functionDeclarations.length}`;
 
                 // Sanitize tool name: must be alphanumeric with underscores, no special chars
                 name = String(name).replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 64);
 
                 const description =
-                  decl?.description ||
-                  tool.description ||
-                  tool.function?.description ||
-                  tool.custom?.description ||
+                  declRecord?.description ||
+                  toolRecord.description ||
+                  toolFunction?.description ||
+                  toolCustom?.description ||
                   "";
 
                 functionDeclarations.push({
@@ -1337,20 +1377,20 @@ export function prepareAntigravityRequest(
                 );
               };
 
-              if (Array.isArray(tool.functionDeclarations) && tool.functionDeclarations.length > 0) {
-                tool.functionDeclarations.forEach((decl: any) => pushDeclaration(decl, "functionDeclarations"));
+              if (Array.isArray(toolRecord.functionDeclarations) && toolRecord.functionDeclarations.length > 0) {
+                toolRecord.functionDeclarations.forEach((decl: unknown) => pushDeclaration(decl, "functionDeclarations"));
                 return;
               }
 
               // Fall back to function/custom style definitions.
               if (
-                tool.function ||
-                tool.custom ||
-                tool.parameters ||
-                tool.input_schema ||
-                tool.inputSchema
+                toolRecord.function ||
+                toolRecord.custom ||
+                toolRecord.parameters ||
+                toolRecord.input_schema ||
+                toolRecord.inputSchema
               ) {
-                pushDeclaration(tool.function ?? tool.custom ?? tool, "function/custom");
+                pushDeclaration(toolRecord.function ?? toolRecord.custom ?? tool, "function/custom");
                 return;
               }
 
@@ -1358,7 +1398,7 @@ export function prepareAntigravityRequest(
               passthroughTools.push(tool);
             });
 
-            const finalTools: any[] = [];
+            const finalTools: unknown[] = [];
             if (functionDeclarations.length > 0) {
               finalTools.push({ functionDeclarations });
             }
@@ -1447,70 +1487,85 @@ export function prepareAntigravityRequest(
         if (Array.isArray(requestPayload.contents)) {
           let toolCallCounter = 0;
           // Track pending call IDs per function name as a FIFO queue
-          const pendingCallIdsByName = new Map<string, string[]>();
+          const pendingCallIdsByName = new Map<string, unknown[]>();
+          let contents: unknown[] = requestPayload.contents;
 
           // First pass: assign IDs to all functionCalls and collect them
-          requestPayload.contents = requestPayload.contents.map((content: any) => {
-            if (!content || !Array.isArray(content.parts)) {
+          contents = contents.map((content: unknown) => {
+            const contentRecord = asRecord(content);
+            if (!contentRecord || !Array.isArray(contentRecord.parts)) {
               return content;
             }
 
-            const newParts = content.parts.map((part: any) => {
-              if (part && typeof part === "object" && part.functionCall) {
-                const call = { ...part.functionCall };
-                if (!call.id) {
-                  call.id = `tool-call-${++toolCallCounter}`;
-                }
-                const nameKey = typeof call.name === "string" ? call.name : `tool-${toolCallCounter}`;
-                // Push to the queue for this function name
-                const queue = pendingCallIdsByName.get(nameKey) || [];
-                queue.push(call.id);
-                pendingCallIdsByName.set(nameKey, queue);
-                return { ...part, functionCall: call };
+            const newParts = contentRecord.parts.map((part: unknown) => {
+              if (!part || typeof part !== "object") {
+                return part;
               }
-              return part;
+              const partRecord = part as Record<string, unknown>;
+              if (!partRecord.functionCall) {
+                return part;
+              }
+              const call: Record<string, unknown> = { ...(partRecord.functionCall as Record<string, unknown>) };
+              if (!call.id) {
+                call.id = `tool-call-${++toolCallCounter}`;
+              }
+              const nameKey = typeof call.name === "string" ? call.name : `tool-${toolCallCounter}`;
+              // Push to the queue for this function name
+              const queue = pendingCallIdsByName.get(nameKey) || [];
+              queue.push(call.id);
+              pendingCallIdsByName.set(nameKey, queue);
+              return { ...partRecord, functionCall: call };
             });
 
-            return { ...content, parts: newParts };
+            return { ...contentRecord, parts: newParts };
           });
 
           // Second pass: match functionResponses to their corresponding calls (FIFO order)
-          requestPayload.contents = (requestPayload.contents as any[]).map((content: any) => {
-            if (!content || !Array.isArray(content.parts)) {
+          contents = contents.map((content: unknown) => {
+            const contentRecord = asRecord(content);
+            if (!contentRecord || !Array.isArray(contentRecord.parts)) {
               return content;
             }
 
-            const newParts = content.parts.map((part: any) => {
-              if (part && typeof part === "object" && part.functionResponse) {
-                const resp = { ...part.functionResponse };
-                if (!resp.id && typeof resp.name === "string") {
-                  const queue = pendingCallIdsByName.get(resp.name);
-                  if (queue && queue.length > 0) {
-                    // Consume the first pending ID (FIFO order)
-                    resp.id = queue.shift();
-                    pendingCallIdsByName.set(resp.name, queue);
-                  }
-                }
-                return { ...part, functionResponse: resp };
+            const newParts = contentRecord.parts.map((part: unknown) => {
+              if (!part || typeof part !== "object") {
+                return part;
               }
-              return part;
+              const partRecord = part as Record<string, unknown>;
+              if (!partRecord.functionResponse) {
+                return part;
+              }
+              const resp: Record<string, unknown> = { ...(partRecord.functionResponse as Record<string, unknown>) };
+              if (!resp.id && typeof resp.name === "string") {
+                const queue = pendingCallIdsByName.get(resp.name);
+                if (queue && queue.length > 0) {
+                  // Consume the first pending ID (FIFO order)
+                  resp.id = queue.shift();
+                  pendingCallIdsByName.set(resp.name, queue);
+                }
+              }
+              return { ...partRecord, functionResponse: resp };
             });
 
-            return { ...content, parts: newParts };
+            return { ...contentRecord, parts: newParts };
           });
 
           // Third pass: Apply orphan recovery for mismatched tool IDs
           // This handles cases where context compaction or other processes
           // create ID mismatches between calls and responses.
           // Ported from LLM-API-Key-Proxy's _fix_tool_response_grouping()
-          requestPayload.contents = fixToolResponseGrouping(requestPayload.contents as any[]);
+          contents = fixToolResponseGrouping(contents as Parameters<typeof fixToolResponseGrouping>[0]);
 
           // Fourth pass (Gemini): guarantee the history does not end with a model
           // turn holding a dangling functionCall (400 "Requests ending with a model
           // turn are not supported"). Claude keeps its own messages[]-based fix.
           if (!isClaude) {
-            requestPayload.contents = sanitizeEndingModelTurn(requestPayload.contents as any[], forceModelTurnFix);
+            contents = sanitizeEndingModelTurn(
+              contents as Parameters<typeof sanitizeEndingModelTurn>[0],
+              forceModelTurnFix,
+            );
           }
+          requestPayload.contents = contents;
         }
 
         // Fourth pass: Fix Claude format tool pairing (defense in depth)
@@ -1610,14 +1665,12 @@ export function prepareAntigravityRequest(
         if (wrappedBody.request && typeof wrappedBody.request === 'object') {
           // Use stable session ID for signature caching across multi-turn conversations
           sessionId = signatureSessionKey;
-          (wrappedBody.request as any).sessionId = signatureSessionKey;
+          (wrappedBody.request as Record<string, unknown>).sessionId = signatureSessionKey;
         }
 
         body = JSON.stringify(wrappedBody);
       }
-    } catch (error) {
-      throw error;
-    }
+
   }
 
   if (streaming) {
@@ -1697,7 +1750,7 @@ export function buildThinkingWarmupBody(
   const updateRequest = (req: Record<string, unknown>) => {
     req.contents = [{ role: "user", parts: [{ text: warmupPrompt }] }];
     delete req.tools;
-    delete (req as any).toolConfig;
+    delete req.toolConfig;
 
     const generationConfig = (req.generationConfig ?? {}) as Record<string, unknown>;
     generationConfig.thinkingConfig = {
@@ -1710,7 +1763,7 @@ export function buildThinkingWarmupBody(
 
   if (parsed.request && typeof parsed.request === "object") {
     updateRequest(parsed.request as Record<string, unknown>);
-    const nested = (parsed.request as any).request;
+    const nested = (parsed.request as Record<string, unknown>).request;
     if (nested && typeof nested === "object") {
       updateRequest(nested as Record<string, unknown>);
     }
@@ -1737,9 +1790,9 @@ export async function transformAntigravityResponse(
   endpoint?: string,
   effectiveModel?: string,
   sessionId?: string,
-  toolDebugMissing?: number,
-  toolDebugSummary?: string,
-  toolDebugPayload?: string,
+  _toolDebugMissing?: number,
+  _toolDebugSummary?: string,
+  _toolDebugPayload?: string,
   debugLines?: string[],
   onSafetyRatings?: (ratings: import("./core/streaming/types").SafetyRating[]) => void,
 ): Promise<Response> {
@@ -1827,20 +1880,28 @@ export async function transformAntigravityResponse(
 
         // Check if this is a recoverable thinking error - throw to trigger retry
         if (errorType === "thinking_block_order") {
-          const recoveryError = new Error("THINKING_RECOVERY_NEEDED");
-          (recoveryError as any).recoveryType = errorType;
-          (recoveryError as any).originalError = errorBody;
-          (recoveryError as any).debugInfo = cleanDebugInfo;
+          const recoveryError = new Error("THINKING_RECOVERY_NEEDED") as Error & {
+            recoveryType?: string;
+            originalError?: unknown;
+            debugInfo?: string;
+          };
+          recoveryError.recoveryType = errorType;
+          recoveryError.originalError = errorBody;
+          recoveryError.debugInfo = cleanDebugInfo;
           throw recoveryError;
         }
 
         // Detect "history ends with a dangling model turn" (400) - throw to trigger
         // a retry whose payload is sanitized via sanitizeEndingModelTurn.
         if (errorType === "model_turn_end") {
-          const recoveryError = new Error("MODEL_TURN_RECOVERY_NEEDED");
-          (recoveryError as any).recoveryType = errorType;
-          (recoveryError as any).originalError = errorBody;
-          (recoveryError as any).debugInfo = cleanDebugInfo;
+          const recoveryError = new Error("MODEL_TURN_RECOVERY_NEEDED") as Error & {
+            recoveryType?: string;
+            originalError?: unknown;
+            debugInfo?: string;
+          };
+          recoveryError.recoveryType = errorType;
+          recoveryError.originalError = errorBody;
+          recoveryError.debugInfo = cleanDebugInfo;
           throw recoveryError;
         }
 
@@ -1873,7 +1934,10 @@ export async function transformAntigravityResponse(
 
       if (errorBody?.error?.details && Array.isArray(errorBody.error.details)) {
         const retryInfo = errorBody.error.details.find(
-          (detail: any) => detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo'
+          (detail: unknown) =>
+            !!detail &&
+            typeof detail === "object" &&
+            (detail as Record<string, unknown>)["@type"] === "type.googleapis.com/google.rpc.RetryInfo"
         );
 
         if (retryInfo?.retryDelay) {
